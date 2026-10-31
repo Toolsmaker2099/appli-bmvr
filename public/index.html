@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Ma bibliothèque</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="theme-color" content="#1f4e5f">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="BMVR">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header><h1>Mes prêts</h1><button id="sync" aria-label="Actualiser">↻</button></header>
+<main>
+  <section id="setup" hidden>
+    <h2>Configuration</h2>
+    <p class="hint">Adresse et code de votre relais personnel (voir le README).</p>
+    <input id="relay" placeholder="https://appli-bmvr-relais.xxx.workers.dev" autocomplete="off" inputmode="url">
+    <input id="token" type="password" placeholder="Code d'accès" autocomplete="off">
+    <button id="save">Enregistrer</button>
+  </section>
+  <section id="loans" hidden>
+    <p id="status" class="hint"></p>
+    <ul id="list"></ul>
+  </section>
+  <section id="links">
+    <h2>Services en ligne</h2>
+    <p class="hint">Connectez-vous d'abord à la BMVR dans votre navigateur : la connexion aux services est ensuite automatique.</p>
+    <a href="https://www.bmvr.marseille.fr/" target="_blank" rel="noopener">Site de la BMVR (compte, catalogue, réservations)</a>
+    <a href="https://www.bmvr.marseille.fr/in/rest/cas/login?service=https%3A%2F%2Fwww.mediapart.fr%2F%3Fcasid%3DBMVR.Marseille" target="_blank" rel="noopener">Mediapart</a>
+    <a href="https://www.bmvr.marseille.fr/mars-actu-connexion-referer" target="_blank" rel="noopener">Marsactu</a>
+    <a href="https://www.cafeyn.co/loginexternal/648" target="_blank" rel="noopener">Cafeyn</a>
+  </section>
+  <section id="foot" hidden><button id="reset" class="link">Modifier la configuration</button></section>
+</main>
+<script src="app.js" type="module"></script>
+</body>
+</html>
