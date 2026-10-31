@@ -897,6 +897,9 @@ $('diagMars').onclick = async () => {
 document.querySelectorAll('.service').forEach((btn) => {
   btn.onclick = async () => {
     $('svcErr').textContent = '';
+    // Marsactu n'ouvre son accès « bibliothèque » que pour un clic venant du site de la BMVR lui-même : on y envoie la personne,
+    // elle touche Marsactu sur la page « En ligne » (connexion à la BMVR conservée par le navigateur après la première fois).
+    if (btn.dataset.service === 'marsactu') { window.open('https://www.bmvr.marseille.fr/en-ligne', '_blank', 'noopener'); return; }
     if (!hasCreds()) { location.hash = '#compte'; return; }
     const strong = btn.querySelector('strong'), label = strong.textContent;
     btn.disabled = true; strong.textContent = label + '…';
