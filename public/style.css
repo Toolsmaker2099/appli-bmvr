@@ -103,3 +103,6 @@ pre{white-space:pre-wrap;word-break:break-word;background:var(--card);border:1px
 .empty-ico{display:grid;place-items:center;width:52px;height:52px;margin:0 auto 10px;border-radius:50%;background:var(--chip);font-size:1.5rem}
 .empty strong{display:block;color:var(--fg);font-size:1rem;font-weight:600}
 .empty p{margin:4px auto 0;max-width:28ch;font-size:.88rem;line-height:1.35}
+
+.msg-line{margin:10px 0 0}.msg-line a{color:#fff;font-weight:600}.msg-line a.new{background:rgba(255,255,255,.22);padding:4px 10px;border-radius:999px;text-decoration:none}
+.card.unread{border-left:4px solid var(--ok)}.new-chip{margin-bottom:6px;display:inline-block}

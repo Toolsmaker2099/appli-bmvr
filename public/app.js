@@ -11,6 +11,20 @@ const store = {
 const hasCreds = () => !!(store.get('user') && store.get('pass'));
 const readCache = () => { try { return JSON.parse(store.get('cache') || 'null'); } catch { return null; } };
 
+// ---------- messages : « nouveau » = pas encore ouvert dans l'appli (le portail ne donne pas d'état lu / non lu) ----------
+const seenSet = () => { try { return new Set(JSON.parse(store.get('seenMsgs') || '[]')); } catch { return new Set(); } };
+const saveSeen = (set) => store.set('seenMsgs', JSON.stringify([...set].slice(-300)));
+const readMsgCache = () => { try { return JSON.parse(store.get('msgCache') || 'null'); } catch { return null; } };
+function unseenCount(items) { const s = seenSet(); return items.filter((m) => !s.has(m.id)).length; }
+async function refreshMessages() {
+  if (!hasCreds()) return null;
+  try { const d = await call('/account', { kind: 'messages' }); store.set('msgCache', JSON.stringify({ at: Date.now(), items: d.items.map((m) => ({ id: m.id, title: m.title, date: m.date })) })); updateEspaceBadge(); return d.items; } catch { return null; }
+}
+function updateEspaceBadge() {
+  const c = readMsgCache(); const n = c ? unseenCount(c.items) : 0;
+  const b = $('badgeEspace'); if (b) { b.hidden = !n; b.textContent = n; }
+}
+
 // ---------- état vide : discret et compact ----------
 function emptyState(icon, title, text) {
   const li = el('li', 'empty');
@@ -61,7 +75,7 @@ function renderSummary() {
     const a = el('a', '', 'Se connecter →'); a.href = '#compte'; box.append(a);
     return;
   }
-  if (!data) { const a = el('a', '', 'Voir mes prêts →'); a.href = '#prets'; box.append(el('strong', '', 'Vos prêts'), a); return; }
+  if (!data) { const a = el('a', '', 'Voir mes prêts →'); a.href = '#prets'; box.append(el('strong', '', 'Vos prêts'), a); renderMsgLine(box); return; }
   const n = data.loans.length;
   const late = data.loans.filter((l) => daysLeft(l.dueDate) < 0).length;
   box.append(el('strong', '', n ? `${n} prêt${n > 1 ? 's' : ''} en cours` : 'Aucun prêt en cours'));
@@ -70,6 +84,20 @@ function renderSummary() {
     box.append(el('p', '', late ? `⚠ ${late} en retard · ${rel(daysLeft(next.dueDate))}` : `Prochain retour : ${rel(daysLeft(next.dueDate)).toLowerCase().replace('à rendre ', '')} (${shortDate(next.dueDate)})`));
   }
   const a = el('a', '', 'Voir mes prêts →'); a.href = '#prets'; box.append(a);
+  renderMsgLine(box);
+}
+function renderMsgLine(box) {
+  const line = el('p', 'msg-line'); box.append(line);
+  const draw = () => {
+    const c = readMsgCache(); if (!c) { line.textContent = ''; return; }
+    const n = c.items.length, u = unseenCount(c.items);
+    line.replaceChildren();
+    const a = el('a', '', n ? `✉️ ${n} message${n > 1 ? 's' : ''}${u ? ` · ${u} nouveau${u > 1 ? 'x' : ''}` : ''}` : '✉️ Aucun message'); a.href = '#espace/messages';
+    if (u) a.className = 'new';
+    line.append(a);
+  };
+  draw();
+  if (!readMsgCache() || Date.now() - readMsgCache().at > 120000) refreshMessages().then(draw);
 }
 
 function updateBadge() {
@@ -576,7 +604,13 @@ async function openEspace(kind) {
     const ul = el('ul', 'cards');
     const items = d.items.filter((it) => it.title || it.fields.length);
     if (!items.length) { ul.append(EMPTY[espaceKind] ? emptyState(...EMPTY[espaceKind]) : emptyState('📭', 'Rien à afficher', '')); }
-    for (const it of items) ul.append(plainCard(it));
+    const seen = espaceKind === 'messages' ? seenSet() : null;
+    for (const it of items) {
+      const li = plainCard(it);
+      if (seen && !seen.has(it.id)) { li.classList.add('unread'); const h = li.querySelector('h3'); if (h) h.before(el('span', 'chip good new-chip', 'Nouveau')); }
+      ul.append(li);
+    }
+    if (seen) { items.forEach((it) => seen.add(it.id)); saveSeen(seen); store.set('msgCache', JSON.stringify({ at: Date.now(), items: items.map((m) => ({ id: m.id, title: m.title, date: m.date })) })); updateEspaceBadge(); }
     body.append(ul); status.textContent = ESPACE[espaceKind];
     if (!items.length || items.every((it) => !it.fields.length)) {
       const b = el('button', 'link', 'Rien de lisible : envoyer un diagnostic'); const pre = el('pre'); pre.hidden = true;
@@ -587,7 +621,7 @@ async function openEspace(kind) {
 }
 
 // ---------- compte ----------
-function signOut() { ['user', 'pass', 'cache', 'resaCache', 'lastTrace'].forEach(store.del); updateBadge(); }
+function signOut() { ['user', 'pass', 'cache', 'resaCache', 'msgCache', 'seenMsgs', 'lastTrace'].forEach(store.del); updateBadge(); }
 
 function renderAccount() {
   const on = hasCreds();
@@ -659,4 +693,5 @@ if ('serviceWorker' in navigator) {
 }
 
 updateBadge();
+updateEspaceBadge();
 go();

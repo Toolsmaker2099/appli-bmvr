@@ -623,6 +623,27 @@ export function parseAccountItems(res) {
 
 const ACCOUNT_KINDS = { loanhistory: 'loanhistory', messages: 'messages', fines: 'fines' };
 
+// Messages de la bibliothèque : le portail donne numéro, objet, date, heure et texte (pas d'état lu / non lu).
+const htmlText = (h) => String(h ?? '').replace(/<\s*br\s*\/?>|<\/p>|<\/div>|<\/li>/gi, '\n').replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#0?39;|&apos;/g, "'").replace(/[ \t]+/g, ' ').replace(/\n\s*\n\s*\n+/g, '\n\n').trim();
+export function parseMessages(res) {
+  const items = Array.isArray(res) ? res : res?.items ?? res?.messages ?? [];
+  return items.map((raw, i) => {
+    const d = raw?.data ?? raw;
+    const subject = htmlText(d.subject);
+    const date = toISODate(d.date, d.dateFormat);
+    const time = String(d.time ?? '').trim().replace(/^(\d{1,2}:\d{2}):\d{2}$/, '$1');
+    const body = htmlText(d.body ?? d.message ?? d.text);
+    const isSystem = (!subject || subject === 'SyracuseMessage');
+    return {
+      id: `${d.number ?? d.messageId ?? i}|${d.date ?? ''}|${d.time ?? ''}`,
+      title: isSystem ? 'Message de la bibliothèque' : subject,
+      author: '', coverId: '', isbn: '',
+      date, time,
+      fields: [date && ['Reçu le', frDate(date) + (time ? ` à ${time}` : '')], body && ['Message', body.slice(0, 2000)]].filter(Boolean),
+    };
+  });
+}
+
 export async function fetchAccount(creds, kind, fetchFn = fetch, debug = false) {
   const { c, token } = await login(creds, fetchFn);
   if (kind === 'profile') {
@@ -668,7 +689,7 @@ export async function fetchAccount(creds, kind, fetchFn = fetch, debug = false) 
     } catch (e) { lastErr = e; }
   }
   if (!res) throw lastErr;
-  const items = parseAccountItems(res);
+  const items = kind === 'messages' ? parseMessages(res) : parseAccountItems(res);
   return debug ? { items, shape: shapeOf(res) } : { items, total: res.total ?? items.length };
 }
 
