@@ -50,6 +50,7 @@ async function refresh() {
     $('loans').hidden = false;
     $('foot').hidden = false;
     $('status').textContent = (cached ? $('status').textContent + ' · ' : '') + 'Actualisation impossible : ' + e.message;
+    $('diag').hidden = false;
   }
 }
 
@@ -63,6 +64,14 @@ $('save').onclick = () => {
   refresh();
 };
 $('sync').onclick = refresh;
+$('diag').onclick = async () => {
+  $('diagOut').hidden = false;
+  $('diagOut').textContent = 'Diagnostic en cours…';
+  try {
+    const r = await fetch(RELAY + '/loans', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: store.get('user'), password: store.get('pass'), diagnostic: true }) });
+    $('diagOut').textContent = JSON.stringify(await r.json(), null, 1);
+  } catch (e) { $('diagOut').textContent = 'Erreur : ' + e.message; }
+};
 $('reset').onclick = () => { signOut(); refresh(); };
 
 // Mise à jour automatique : à chaque ouverture ou retour sur l'appli, on cherche une nouvelle version ;

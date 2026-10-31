@@ -127,3 +127,21 @@ export function shapeOf(v, depth = 0) {
   if (v && typeof v === 'object') return depth > 6 ? '{…}' : Object.fromEntries(Object.entries(v).map(([k, x]) => [k, shapeOf(x, depth + 1)]));
   return typeof v;
 }
+
+// Diagnostic : statuts HTTP des principaux appels après connexion, sans aucune donnée personnelle (les corps ne sont pas renvoyés
+// sauf pour les erreurs, tronqués). Sert à comprendre un refus du portail.
+export async function diagnose({ username, password }, fetchFn = fetch) {
+  const apiToken = await getApiToken(fetchFn);
+  const c = makeClient(apiToken, fetchFn);
+  const session = await c.post(null, 'authenticate', { username: username.includes('@') ? username.toLowerCase() : username, password, locale: 'fr' });
+  if (!session.token) throw new AuthError(`Connexion refusée : ${session.error || 'identifiants incorrects ?'}`);
+  const out = { sessionKeys: Object.keys(session).sort(), steps: [] };
+  const step = async (label, fn) => {
+    try { const r = await fn(); out.steps.push({ label, ok: true, shape: shapeOf(r) }); return r; } catch (e) { out.steps.push({ label, ok: false, error: e.message.slice(0, 250) }); }
+  };
+  for (const aspect of ['loans', 'accountSummary', 'rights', 'profile']) {
+    await step(`${aspect} locale=fr`, () => c.get(session.token, aspect, { locale: 'fr' }));
+    await step(`${aspect} sans paramètre`, () => c.get(session.token, aspect, {}));
+  }
+  return out;
+}
