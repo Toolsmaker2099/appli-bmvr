@@ -433,6 +433,16 @@ function reserveSheet(item, li) {
   }).catch((e) => { msg.textContent = e.message; msg.className = 'hint msg err'; });
 }
 
+function accSummary(ico, text) {
+  const sm = el('summary', 'acc');
+  sm.append(el('span', 'acc-ico', ico), el('span', 'acc-txt', text), el('span', 'acc-chev', '›'));
+  return sm;
+}
+function noticeFields(entries) {
+  const g = el('div', 'nf-grid');
+  for (const [k, v] of entries) if (v) { const d = el('div', 'nf' + (String(v).length > 90 ? ' wide' : '')); d.append(el('small', '', k), el('p', '', v)); g.append(d); }
+  return g.children.length ? g : null;
+}
 function searchCard(item) {
   const li = el('li', 'card');
   const head = el('div', 'card-head');
@@ -455,13 +465,13 @@ function searchCard(item) {
   else if (item.availability) chip(item.availability === 'available' ? '✓ Document disponible dans un des établissements du réseau' : 'Aucun exemplaire disponible actuellement', item.availability === 'available' ? 'good' : 'warn');
   if (chips.children.length) li.append(chips);
   if (item.copies?.length) {
-    const ex = el('details', 'notice copies');
+    const ex = el('details', 'notice where');
     const by = new Map();
     for (const c of item.copies) { const k = c.branch || 'Bibliothèque'; if (!by.has(k)) by.set(k, []); by.get(k).push(c); }
     const free = (x) => x.available && !x.held; // seul « Disponible » (non réservé) est vert
     const tone = (x) => (free(x) ? 'ok' : x.available || ['PR', 'AT', 'TR'].includes(x.stat) ? 'wait' : 'no');
     const nb = [...by.values()].filter((l) => l.some(free)).length;
-    ex.append(el('summary', '', nb ? `📍 Où l'emprunter · disponible dans ${nb} bibliothèque${nb > 1 ? 's' : ''}` : '📍 Où le trouver · aucun exemplaire disponible'));
+    ex.append(accSummary('📍', nb ? `Où l'emprunter · disponible dans ${nb} bibliothèque${nb > 1 ? 's' : ''}` : 'Où le trouver · aucun exemplaire disponible'));
     const box = el('div', 'copy-list');
     for (const [name, list] of [...by].sort((a, b) => b[1].filter(free).length - a[1].filter(free).length || a[0].localeCompare(b[0], 'fr'))) {
       const n = list.filter(free).length;
@@ -479,7 +489,7 @@ function searchCard(item) {
     ex.append(box); li.append(ex);
   }
   const det = el('details', 'notice');
-  det.append(el('summary', '', 'Détails'));
+  det.append(accSummary('📖', 'Détails du document'));
   const body = el('div', 'notice-body');
   det.append(body);
   let loaded = false;
@@ -490,7 +500,7 @@ function searchCard(item) {
       const d = await call('/notice', { id: item.id });
       body.replaceChildren();
       const extra = d.fields.length ? d.fields : item.fields.filter(([l]) => !MAIN.includes(l));
-      const r = rows(extra);
+      const r = noticeFields(extra);
       if (r) body.append(r); else body.append(el('p', 'hint', 'Aucun détail supplémentaire.'));
       if (!d.fields.length) {
         const b = el('button', 'link', 'Détails manquants : envoyer un diagnostic'); const pre = el('pre'); pre.hidden = true;

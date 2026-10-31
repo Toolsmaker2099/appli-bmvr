@@ -157,3 +157,21 @@ button.danger{color:#b3261e}
 .copy-st{text-align:right;flex:none;max-width:55%}
 .copy-st.ok{color:var(--ok);font-weight:600}.copy-st.no{color:var(--warn)}
 .copy-st.wait{color:var(--warn);font-weight:600}.copy-st.no{color:var(--muted)}
+
+/* menus dépliants des cartes de recherche */
+.card details.notice{border-top:0;margin:6px 12px 0}
+.card details.notice + details.notice{margin-top:8px}
+.card details.notice:last-of-type{margin-bottom:10px}
+summary.acc{display:flex;align-items:center;gap:10px;padding:11px 12px;border-radius:12px;background:var(--chip);color:var(--fg);font-weight:600;font-size:.9rem}
+.acc-ico{font-size:1.05rem}.acc-txt{flex:1;min-width:0}
+.acc-chev{font-size:1.3rem;color:var(--muted);transition:transform .2s}
+details[open]>summary.acc .acc-chev{transform:rotate(90deg)}
+details[open]>summary.acc{border-bottom-left-radius:0;border-bottom-right-radius:0}
+.notice-body,.copy-list{background:color-mix(in srgb,var(--chip) 45%,transparent);border-radius:0 0 12px 12px;padding:12px}
+.copy-list{padding:12px;gap:14px}
+.nf-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px 14px}
+.nf small{display:block;font-size:.7rem;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);margin-bottom:2px}
+.nf p{margin:0;font-size:.92rem;overflow-wrap:anywhere}
+.nf.wide{grid-column:1/-1}
+.nf.wide p{line-height:1.5}
+.copy-h strong{font-size:.92rem}.copy-h .chip{white-space:nowrap;flex:none}
