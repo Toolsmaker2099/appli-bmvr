@@ -42,7 +42,7 @@ async function refresh() {
   try {
     const r = await fetch(RELAY + '/loans', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: user, password: pass }) });
     const data = await r.json();
-    if (r.status === 401) { signOut(); $('setup').hidden = false; $('err').textContent = 'Identifiants refusés par la BMVR.'; return; }
+    if (r.status === 401) { signOut(); $('loans').hidden = true; $('foot').hidden = true; $('setup').hidden = false; $('err').textContent = data.error || 'Identifiants refusés par la BMVR.'; return; }
     if (!r.ok) throw new Error(data.error || 'HTTP ' + r.status);
     store.set('cache', JSON.stringify(data));
     render(data);

@@ -4,6 +4,8 @@
 const BASE = 'https://www.bmvr.marseille.fr';
 const API = `${BASE}/in/rest`;
 
+export class AuthError extends Error {}
+
 // Somme de contrôle utilisée par le portail (ce n'est pas un secret, juste une vérification d'intégrité).
 export function checksum(str) {
   let n = 305419896;
@@ -41,6 +43,7 @@ function makeClient(apiToken, fetchFn) {
         body: raw,
       });
       keep(res);
+      if (res.status === 401 && path === 'authenticate') throw new AuthError('Connexion refusée : identifiant ou mot de passe incorrect');
       if (!res.ok) throw new Error(`Portail: ${path} → HTTP ${res.status}`);
       return res.json();
     },
@@ -97,7 +100,7 @@ export async function fetchLoans({ username, password }, fetchFn = fetch, debug 
   const apiToken = await getApiToken(fetchFn);
   const c = makeClient(apiToken, fetchFn);
   const session = await c.post(null, 'authenticate', { username: username.includes('@') ? username.toLowerCase() : username, password, locale: 'fr' });
-  if (!session.token) throw new Error('Connexion refusée (identifiants incorrects ?)');
+  if (!session.token) throw new AuthError(`Connexion refusée : ${session.error || 'identifiants incorrects ?'}`);
   const loans = await c.get(session.token, 'loans', { locale: 'fr' });
   const seqNos = (loans.items ?? []).map((it) => it.seqNo ?? it.data?.seqNo ?? it.data?.seq_no ?? it.bacNo ?? it.data?.bacNo).filter((x) => x != null);
   const resolved = {};

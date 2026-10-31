@@ -1,4 +1,4 @@
-import { fetchLoans } from './portal.js';
+import { fetchLoans, AuthError } from './portal.js';
 
 // Relais multi-utilisateurs sans état : l'appli envoie les identifiants BMVR de la personne à chaque requête (HTTPS),
 // le relais s'en sert pour interroger le portail puis les oublie. Rien n'est stocké ni journalisé.
@@ -28,7 +28,7 @@ export default {
       const r = await fetchLoans({ username, password }, fetch, body.debug === true);
       return json({ ...r, fetchedAt: new Date().toISOString() }, 200, cors);
     } catch (e) {
-      return json({ error: e.message }, e.message.startsWith('Connexion refusée') ? 401 : 502, cors);
+      return json({ error: e.message }, e instanceof AuthError ? 401 : 502, cors);
     }
   },
 };
