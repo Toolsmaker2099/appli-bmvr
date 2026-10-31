@@ -469,7 +469,7 @@ function searchCard(item) {
       for (const c of list) {
         const r = el('div', 'copy-row');
         r.append(el('span', 'copy-what', [c.place, c.callNumber].filter(Boolean).join(' · ') || 'Exemplaire'));
-        r.append(el('span', 'copy-st ' + (c.available ? 'ok' : 'no'), c.available ? '✓ Disponible' : (c.status || 'Indisponible') + (c.due ? ` · retour le ${shortDate(c.due)}` : '')));
+        r.append(el('span', 'copy-st ' + (c.available ? 'ok' : 'no'), (c.available ? '✓ ' : '') + (c.status || (c.available ? 'Disponible' : 'Indisponible')) + (!c.available && c.due ? ` · retour le ${shortDate(c.due)}` : '')));
         g.append(r);
       }
       box.append(g);
