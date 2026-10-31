@@ -675,11 +675,22 @@ export async function fetchAccount(creds, kind, fetchFn = fetch, debug = false) 
 // Favoris (« listes » du portail).
 export function parseBaskets(list) {
   const arr = Array.isArray(list) ? list : list?.items ?? list?.baskets ?? [];
-  return arr.map((b) => ({
-    id: String(b.id ?? b.basketId ?? ''),
-    name: String(b.title ?? b.name ?? b.label ?? b.properties?.title ?? b.properties?.name ?? 'Liste'),
-    count: Number(b.size ?? b.count ?? b.nbItems ?? b.properties?.size ?? b.properties?.count ?? 0) || 0,
-  })).filter((b) => b.id);
+  const str = (v) => (typeof v === 'string' ? v.trim() : v && typeof v === 'object' ? str(v.Answer ?? v.value ?? v.fr ?? v.fre ?? Object.values(v).find((x) => typeof x === 'string')) : '');
+  const nameOf = (b) => {
+    for (const k of ['title', 'name', 'label', 'nom', 'basketName', 'listName', 'description', 'desc']) { const v = str(b[k]); if (v) return v; }
+    const pr = b.properties ?? b.props ?? b.data;
+    if (Array.isArray(pr)) { const f = pr.find((x) => /title|name|label|nom/i.test(String(x?.name ?? x?.key ?? ''))); const v = str(f?.value ?? f); if (v) return v; }
+    else if (pr && typeof pr === 'object') for (const k of Object.keys(pr)) if (/title|name|label|nom/i.test(k)) { const v = str(pr[k]); if (v) return v; }
+    // dernier recours : tout texte lisible du portail (hors identifiants)
+    for (const [k, v] of Object.entries(b)) if (typeof v === 'string' && v.trim() && !/id$|^id|owner|user|date|type|url/i.test(k)) return v.trim();
+    return '';
+  };
+  const countOf = (b) => { const pr = b.properties; const cand = [b.size, b.count, b.nbItems, b.itemCount, b.numItems, pr?.size, pr?.count, Array.isArray(b.iids) ? b.iids.length : undefined, Array.isArray(b.items) ? b.items.length : undefined]; return Number(cand.find((x) => x != null && !isNaN(Number(x)))) || 0; };
+  return arr.map((b) => {
+    const id = String(b.id ?? b.basketId ?? '');
+    const name = nameOf(b) || (/default/i.test(id) ? 'Mes favoris' : 'Liste sans nom');
+    return { id, name, count: countOf(b), isDefault: /default/i.test(id) };
+  }).filter((b) => b.id);
 }
 
 export async function basketOp(creds, body, fetchFn = fetch, debug = false) {

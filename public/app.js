@@ -475,13 +475,18 @@ async function showBaskets(body, status) {
       const row = el('div', 'btn-row');
       const open = el('button', 'primary small', 'Ouvrir');
       const ren = el('button', 'secondary small', 'Renommer');
-      const del = el('button', 'secondary small danger', 'Supprimer');
+      const del = el('button', 'secondary small danger', 'Supprimer'); del.hidden = !!b.isDefault;
       open.onclick = () => showBasket(body, status, b);
       ren.onclick = async () => { const n = prompt('Nouveau nom ?', b.name); if (!n || !n.trim()) return; try { render((await call('/basket', { action: 'rename', basketId: b.id, name: n.trim() })).baskets); } catch (e) { status.textContent = e.message; } };
       del.onclick = async () => { if (!confirm(`Supprimer la liste « ${b.name} » ?`)) return; try { render((await call('/basket', { action: 'delete', basketId: b.id })).baskets); } catch (e) { status.textContent = e.message; } };
       row.append(open, ren, del); li.append(row); ul.append(li);
     }
     body.append(ul); status.textContent = '';
+    if (baskets.some((b) => b.name === 'Liste sans nom')) {
+      const d = el('button', 'link', 'Noms manquants : envoyer un diagnostic'); const pre = el('pre'); pre.hidden = true;
+      d.onclick = async () => { pre.hidden = false; pre.textContent = '…'; try { const g = await call('/basket', { action: 'list', debug: true }); pre.textContent = JSON.stringify(g.shape, null, 1); } catch (e) { pre.textContent = e.message; } };
+      body.append(d, pre);
+    }
   };
   status.textContent = 'Chargement de vos favoris…';
   try { render((await call('/basket', { action: 'list' })).baskets); } catch (e) { status.textContent = 'Impossible de charger les favoris : ' + e.message; }
