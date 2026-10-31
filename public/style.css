@@ -231,3 +231,4 @@ a.primary.linkbtn{background:var(--accent);color:var(--accent-fg);display:block;
 .lib-t{flex:1;min-width:0;display:flex;flex-direction:column;line-height:1.25}.lib-t small{color:var(--muted)}
 .card.infos{border-left-color:var(--warn);padding:12px 14px;margin-bottom:12px}
 .card.infos h4{margin:0 0 6px}
+.card.selectable .card-head{padding-right:52px}
