@@ -521,6 +521,11 @@ async function openEspace() {
     if (!items.length) { const li = el('li', 'hero'); li.append(el('strong', '', espaceKind === 'fines' ? 'Aucune amende' : 'Rien à afficher')); ul.append(li); }
     for (const it of items) ul.append(plainCard(it));
     body.append(ul); status.textContent = ESPACE[espaceKind];
+    if (!items.length || items.every((it) => !it.fields.length)) {
+      const b = el('button', 'link', 'Rien de lisible : envoyer un diagnostic'); const pre = el('pre'); pre.hidden = true;
+      b.onclick = async () => { pre.hidden = false; pre.textContent = 'Diagnostic en cours…'; try { const g = await call('/account', { kind: espaceKind, debug: true }); pre.textContent = JSON.stringify(g.shape, null, 1); } catch (e) { pre.textContent = 'Erreur : ' + e.message; } };
+      body.append(b, pre);
+    }
   } catch (e) { status.textContent = 'Impossible de charger : ' + e.message; }
 }
 document.querySelectorAll('#seg button').forEach((b) => { b.onclick = () => { espaceKind = b.dataset.k; store.set('espaceKind', espaceKind); openEspace(); }; });
