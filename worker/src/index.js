@@ -53,7 +53,7 @@ export default {
       if (url.pathname === '/renew') return json(await renewLoan({ username, password }, body.documentId), 200, cors);
       if (url.pathname === '/service') {
         const trace = [];
-        try { return json({ url: await fetchServiceUrl({ username, password }, body.service, fetch, trace), trace }, 200, cors); } catch (e) { return json({ error: e.message, trace }, e instanceof AuthError ? 401 : 502, cors); }
+        try { return json({ url: await fetchServiceUrl({ username, password }, body.service, fetch, trace, body.follow === true), trace }, 200, cors); } catch (e) { return json({ error: e.message, trace }, e instanceof AuthError ? 401 : 502, cors); }
       }
       if (body.diagnostic === true) return json(await diagnose({ username, password }), 200, cors);
       const r = await withSession(who, (w) => fetchLoans(w, fetch, body.debug === true));

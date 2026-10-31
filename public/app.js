@@ -859,7 +859,7 @@ function renderAccount() {
     box.append(ul);
     if (!addingAccount) { const add = el('button', 'secondary', '➕ Ajouter un autre compte'); add.onclick = () => { addingAccount = true; renderAccount(); }; box.append(add); }
   }
-  $('diag').hidden = !on; $('diagSearch').hidden = !on;
+  $('diag').hidden = !on; $('diagSearch').hidden = !on; $('diagMars').hidden = !on;
 }
 
 $('save').onclick = () => {
@@ -887,6 +887,13 @@ $('diag').onclick = async () => {
 // ---------- services en ligne ----------
 // Le relais se connecte à la BMVR avec vos identifiants et renvoie l'adresse d'entrée du service (avec un ticket à usage
 // unique) ; on l'ouvre aussitôt, dans la même fenêtre.
+$('diagMars').onclick = async () => {
+  $('diagOut').hidden = false; $('diagOut').textContent = 'Diagnostic Marsactu en cours…';
+  try {
+    const r = await fetch(RELAY + '/service', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: store.get('user'), password: store.get('pass'), service: 'marsactu', follow: true }) });
+    const d = await r.json(); $('diagOut').textContent = (d.trace || []).join('\n') + (d.error ? '\nErreur : ' + d.error : '');
+  } catch (e) { $('diagOut').textContent = 'Erreur : ' + e.message; }
+};
 document.querySelectorAll('.service').forEach((btn) => {
   btn.onclick = async () => {
     $('svcErr').textContent = '';

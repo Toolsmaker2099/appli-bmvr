@@ -280,7 +280,7 @@ export const SERVICES = {
 };
 
 // Connexion à la BMVR puis adresse d'entrée (avec ticket) du service demandé.
-export async function fetchServiceUrl({ username, password }, service, fetchFn = fetch, trace = []) {
+export async function fetchServiceUrl({ username, password }, service, fetchFn = fetch, trace = [], follow = false) {
   const start = SERVICES[service];
   if (!start) throw new Error('Service inconnu');
   const c = makeClient(fetchFn);
@@ -289,7 +289,27 @@ export async function fetchServiceUrl({ username, password }, service, fetchFn =
   if (!session.token) throw new AuthError(`Connexion refusée : ${session.error || 'identifiants incorrects ?'}`);
   await c.connect();
   trace.push(`session ${c.cookieNames().join('+')}`);
-  return c.serviceUrl(start, trace);
+  const entry = await c.serviceUrl(start, trace);
+  if (follow) await followChain(entry, fetchFn, trace); // diagnostic : suit la suite des redirections côté relais
+  return entry;
+}
+
+// Diagnostic : suit les redirections après l'adresse d'entrée et note, sans valeurs, hôtes, chemins, noms de paramètres et de cookies.
+async function followChain(start, fetchFn, trace) {
+  const jar = new Map();
+  let url = start;
+  for (let hop = 0; hop < 12; hop++) {
+    const u = new URL(url);
+    const cookie = [...(jar.get(u.host) ?? new Map())].map(([k, v]) => `${k}=${v}`).join('; ');
+    const res = await fetchFn(url, { redirect: 'manual', headers: { 'User-Agent': 'Mozilla/5.0 (compatible; appli-bmvr)', ...(cookie ? { Cookie: cookie } : {}) } });
+    const names = [];
+    for (const sc of res.headers.getSetCookie?.() ?? []) { const [pair] = sc.split(';'); const i = pair.indexOf('='); if (!jar.has(u.host)) jar.set(u.host, new Map()); jar.get(u.host).set(pair.slice(0, i), pair.slice(i + 1)); names.push(pair.slice(0, i)); }
+    const loc = res.headers.get('Location');
+    const nx = loc ? new URL(loc, url) : null;
+    trace.push(`suite ${res.status} ${u.host}${u.pathname} [${[...u.searchParams.keys()].join(',')}]${names.length ? ' cookies:' + names.join('+') : ''}${nx ? ` → ${nx.host}${nx.pathname} [${[...nx.searchParams.keys()].join(',')}]` : ''}`);
+    if (!nx) { if (res.status === 200) { const t = (await res.text()).slice(0, 4000); const m = t.match(/(?:window\.location(?:\.href)?\s*=|location\.replace\(|http-equiv=["']refresh["'][^>]*url=)\s*["']?([^"')\s>]+)/i); if (m) trace.push(`page ${u.host} redirige (script/meta) vers ${m[1].slice(0, 120).replace(/[?&]((?:ticket|token|code)[^=]*)=[^&]*/gi, '?$1=XXX')}`); } return; }
+    url = nx.toString();
+  }
 }
 
 // Prolongation d'un prêt (même appel que le bouton « Prolonger » du portail). documentId = numéro de document du prêt.
