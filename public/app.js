@@ -482,7 +482,7 @@ async function showBaskets(body, status) {
       head.append(t); li.append(head);
       const row = el('div', 'btn-row');
       const open = el('button', 'primary small', 'Ouvrir');
-      const ren = el('button', 'secondary small', 'Renommer');
+      const ren = el('button', 'secondary small', 'Renommer'); ren.hidden = !!b.isDefault;
       const del = el('button', 'secondary small danger', 'Supprimer'); del.hidden = !!b.isDefault;
       open.onclick = () => showBasket(body, status, b);
       ren.onclick = async () => { const n = prompt('Nouveau nom ?', b.name); if (!n || !n.trim()) return; try { render((await call('/basket', { action: 'rename', basketId: b.id, name: n.trim() })).baskets); } catch (e) { status.textContent = e.message; } };

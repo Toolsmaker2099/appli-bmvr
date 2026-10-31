@@ -689,7 +689,7 @@ export function parseBaskets(list) {
   return arr.map((b) => {
     const id = String(b.id ?? b.basketId ?? '');
     const name = nameOf(b) || (/default/i.test(id) ? 'Mes favoris' : 'Liste sans nom');
-    return { id, name, count: countOf(b), isDefault: /default/i.test(id) };
+    return { id, name, count: countOf(b), isDefault: /default|favou?rite|to.?read|later|^basket:[^:]*:[a-z_ -]+:$/i.test(id) };
   }).filter((b) => b.id);
 }
 
