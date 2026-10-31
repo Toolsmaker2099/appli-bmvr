@@ -6,6 +6,15 @@ import { fetchLoans, fetchServiceUrl, renewLoan, diagnose, fetchReservations, ca
 
 const json = (data, status, cors) => new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', ...cors } });
 
+const HITS = new Map();
+const LIMIT = 90; // requêtes par minute et par adresse
+function tooMany(ip, now) {
+  const h = (HITS.get(ip) ?? []).filter((t) => now - t < 60000);
+  h.push(now); HITS.set(ip, h);
+  if (HITS.size > 2000) for (const [k, v] of HITS) if (!v.length || now - v[v.length - 1] >= 60000) HITS.delete(k);
+  return h.length > LIMIT;
+}
+
 export default {
   async fetch(req, env) {
     const origin = req.headers.get('Origin');
@@ -16,6 +25,10 @@ export default {
     const url = new URL(req.url);
     if (req.method !== 'POST' || !['/loans', '/service', '/renew', '/reservations', '/cancel', '/search', '/reserve-info', '/reserve-rank', '/reserve', '/account', '/delete-message', '/basket', '/notice'].includes(url.pathname)) return json({ error: 'introuvable' }, 404, cors);
     if (!ok) return json({ error: 'origine non autorisée' }, 403, cors);
+
+    // Limite de débit (par adresse, en mémoire de l'instance) : freine les abus sans rien stocker de durable.
+    const ip = req.headers.get('CF-Connecting-IP') || 'inconnue';
+    if (tooMany(ip, Date.now())) return json({ error: 'Trop de requêtes, réessayez dans une minute.' }, 429, { ...cors, 'Retry-After': '60' });
 
     let body;
     try { body = await req.json(); } catch { return json({ error: 'requête invalide' }, 400, cors); }
