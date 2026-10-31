@@ -718,6 +718,25 @@ function messageCard(it, unread) {
   return li;
 }
 
+// Pictogramme d'une liste, d'après son titre (mots-clés français) ; à défaut, un pictogramme stable tiré du nom.
+const LIST_ICONS = [
+  [/cuisin|recette|p[âa]tisserie|gastronom/i, '🍳'], [/enfant|jeunesse|b[ée]b[ée]|conte|album/i, '🧸'], [/musique|cd\b|chanson|concert|jazz|rock|opéra|opera/i, '🎵'],
+  [/film|dvd|cin[ée]ma|s[ée]rie/i, '🎬'], [/\bbd\b|manga|comics|bande dessin/i, '🦸'], [/polar|thriller|policier|enqu[êe]te|crime/i, '🕵️'],
+  [/histoire|patrimoine|antiqu|guerre/i, '🏛️'], [/marseille|proven[cç]e|ville/i, '🌆'], [/voyage|vacances|[ée]t[ée]\b|plage|d[ée]couverte|g[ée]ographie/i, '🧳'],
+  [/sport|foot|course|yoga|rando/i, '🏃'], [/science|physique|chimie|math|biologie|astronomie/i, '🔬'], [/art\b|peinture|photo|mus[ée]e|expo|design/i, '🎨'],
+  [/sant[ée]|bien-?[êe]tre|m[ée]decine|psycho|sommeil/i, '🌿'], [/jardin|nature|plante|animaux|environnement|[ée]cologie/i, '🌱'],
+  [/philo|spiritu|religion|pens[ée]e/i, '💭'], [/langue|anglais|espagnol|apprendre|cours|[ée]tude|dico/i, '🎓'], [/cadeau|id[ée]e|offrir|no[ëe]l/i, '🎁'],
+  [/travail|carri[èe]re|m[ée]tier|entreprise|business|argent/i, '💼'], [/roman|litt[ée]rature|po[ée]sie|th[ée][âa]tre|nouvelle/i, '📖'], [/lire|lecture|plus tard|a voir|à voir|envie/i, '🔖'],
+  [/favori|coup de c[œo]eur|pr[ée]f[ée]r|aim[ée]/i, '❤️'],
+];
+const FALLBACK_ICONS = ['⭐', '📌', '🗂️', '🧭', '💡', '🎯', '🧩', '🌟'];
+function listIcon(name, isDefault) {
+  const hit = LIST_ICONS.find(([re]) => re.test(name));
+  if (hit) return hit[1];
+  if (isDefault) return '❤️';
+  let h = 0; for (const ch of String(name)) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return FALLBACK_ICONS[h % FALLBACK_ICONS.length];
+}
 async function showBaskets(body, status) {
   const render = (baskets) => {
     body.replaceChildren();
@@ -732,7 +751,7 @@ async function showBaskets(body, status) {
     for (const b of baskets) {
       const li = el('li', 'list-card');
       const main = el('div', 'list-main'); main.tabIndex = 0; main.setAttribute('role', 'button');
-      const ico = el('span', 'list-ico', b.isDefault ? '♡' : '📚'); ico.style.background = userColor(b.name);
+      const ico = el('span', 'list-ico', listIcon(b.name, b.isDefault)); ico.style.background = `color-mix(in srgb, ${userColor(b.name)} 20%, var(--card))`;
       const t = el('span', 'list-txt');
       t.append(el('strong', '', b.name), el('small', '', b.count ? `${b.count} document${b.count > 1 ? 's' : ''}` : 'Liste vide'));
       main.append(ico, t, el('span', 'stat-go', '›'));
