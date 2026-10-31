@@ -68,10 +68,11 @@ function updateBadge() {
 // Image du portail BMVR d'abord (la même que sur le site) ; si le portail n'a qu'une vignette générique (256×256),
 // on essaie Open Library via l'ISBN ; sinon un pictogramme.
 function cover(l) {
-  if (!l.coverId && !l.isbn) return el('div', 'cover-ph', '📕');
+  if (!l.coverId && !l.isbn && !l.image) return el('div', 'cover-ph', '📕');
   const img = el('img', 'cover');
   img.alt = ''; img.loading = 'lazy'; img.referrerPolicy = 'no-referrer';
   const sources = [];
+  if (l.image) sources.push({ url: l.image, generic: false });
   if (l.coverId) sources.push({ url: 'https://www.bmvr.marseille.fr/in/rest/Thumb/image?id=' + encodeURIComponent(l.coverId), generic: true });
   if (l.isbn) sources.push({ url: `https://covers.openlibrary.org/b/isbn/${encodeURIComponent(l.isbn)}-M.jpg?default=false`, generic: false });
   let i = 0;

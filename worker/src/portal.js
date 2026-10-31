@@ -414,8 +414,9 @@ export function parseSearch(res) {
     ];
     const frLabel = (k) => FR.find(([re]) => re.test(k))?.[1] ?? null;
     for (const [k, arr] of Object.entries(e.meta ?? {})) {
-      const label = frLabel(k);
-      if (!label) continue;
+      const own = Array.isArray(arr) && typeof arr[0]?.label === 'string' ? arr[0].label.replace(/\s*:\s*$/, '').trim() : '';
+      const label = frLabel(k) || (own && !/^[a-z_.]+$/.test(own) && own.length < 40 ? own : null); // intitulé du portail (demandé en français)
+      if (!label || SKIP.test(k)) continue;
       add(label, flat(Array.isArray(arr) ? arr.map((x) => (x && typeof x === 'object' && 'value' in x ? x.value : x)) : arr));
     }
     for (const k of ['author', 'publisher', 'date', 'typeOfDocumentFacet', 'language', 'subject', 'genre', 'collection', 'summary', 'physicalDescription', 'edition', 'isbn']) {
@@ -440,6 +441,7 @@ export function parseSearch(res) {
       year: '',
       type: '',
       availability,
+      image: (() => { const v = first(e.imageSource_512) ?? first(e.imageSource_256) ?? first(e.imageSource_128); if (!v || typeof v !== 'string') return ''; const u = v.startsWith('http') ? v : v.startsWith('/') ? BASE + v : ''; return u && /^https:\/\//.test(u) ? u + (u.includes('rest/Thumb') && !u.includes('siteId=') ? (u.includes('?') ? '&' : '?') + 'siteId=mainSite' : '') : ''; })(),
       coverId: num ? id : '',
       isbn: String(first(e.isbn) ?? first(e.isbn13) ?? first(e.isbn10) ?? first(e.meta?.isbn) ?? first(e.meta?.isbn13) ?? '').replace(/[^0-9Xx]/g, ''),
       fields,
