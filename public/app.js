@@ -516,6 +516,23 @@ async function openEspace() {
   status.textContent = 'Chargement…';
   try {
     const d = await call('/account', { kind: espaceKind });
+    if (espaceKind === 'profile' && d.profile && (d.profile.name || d.profile.sections.length)) {
+      const pr = d.profile;
+      const hero = el('div', 'profile-hero');
+      const initials = (pr.name || '?').split(/\s+/).map((w) => w[0]).slice(0, 2).join('').toUpperCase();
+      hero.append(el('div', 'avatar', initials));
+      const info = el('div', 'profile-id'); info.append(el('h3', '', pr.name || 'Mon profil'));
+      if (pr.subtitle) info.append(el('p', '', pr.subtitle));
+      if (pr.card) info.append(el('p', 'hint', 'Carte n° ' + pr.card));
+      hero.append(info); body.append(hero);
+      for (const sec of pr.sections) {
+        const card = el('div', 'card profile-sec'); card.append(el('h4', '', sec.title));
+        const r = rows(sec.rows); if (r) card.append(r);
+        body.append(card);
+      }
+      status.textContent = '';
+      return;
+    }
     const ul = el('ul', 'cards');
     const items = d.items.filter((it) => it.title || it.fields.length);
     if (!items.length) { const li = el('li', 'hero'); li.append(el('strong', '', espaceKind === 'fines' ? 'Aucune amende' : 'Rien à afficher')); ul.append(li); }

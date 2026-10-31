@@ -651,7 +651,9 @@ export async function fetchAccount(creds, kind, fetchFn = fetch, debug = false) 
       fields.push([label, v.slice(0, 300)]);
     }
     if (!fields.length) fields.push(...genericFields(Object.fromEntries(Object.entries(p).filter(([, x]) => typeof x !== 'object'))));
-    return debug ? { items: [{ id: 'profil', title: '', fields }], shape: shapeOf(p), propertyNames: props.map((x) => x.name) } : { items: [{ id: 'profil', title: '', fields }] };
+    const profile = organizeProfile(fields);
+    const out = { items: [{ id: 'profil', title: '', fields: profile.sections.flatMap((x) => x.rows) }], profile };
+    return debug ? { ...out, shape: shapeOf(p), propertyNames: props.map((x) => x.name) } : out;
   }
   const type = ACCOUNT_KINDS[kind];
   if (!type) throw new Error('Rubrique inconnue');
@@ -729,4 +731,32 @@ export async function basketOp(creds, body, fetchFn = fetch, debug = false) {
     }
     default: throw new Error('Action inconnue');
   }
+}
+
+
+// Profil rangé par rubriques, sans redites : chaque valeur n'apparaît qu'une fois, adresse regroupée sur une ligne.
+export function organizeProfile(fields) {
+  const norm = (v) => String(v).toLowerCase().replace(/[\s.\-()+]/g, '');
+  const seen = new Set();
+  const by = new Map();
+  for (const [label, val] of fields) {
+    const key = norm(val);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    if (!by.has(label)) by.set(label, []);
+    by.get(label).push(val);
+  }
+  const take = (...labels) => labels.flatMap((l) => by.get(l) ?? []);
+  const once = (l) => by.get(l)?.[0];
+  const first_ = once('Prénom'), last_ = once('Nom de famille') ?? once('Nom');
+  const civ = once('Civilité');
+  const fullName = [first_, last_].filter(Boolean).join(' ') || once('Nom') || '';
+  const addr = [take('Adresse').join(', '), [once('Code postal'), once('Ville')].filter(Boolean).join(' '), once('Pays')].filter(Boolean).join(', ');
+  const sections = [];
+  const sec = (title, rows) => { const r = rows.filter(([, v]) => v); if (r.length) sections.push({ title, rows: r }); };
+  sec('Coordonnées', [['E-mail', take('E-mail').join(' · ')], ['Téléphone', take('Téléphone mobile', 'Téléphone').join(' · ')], ['Adresse', addr]]);
+  sec('Abonnement', [['Catégorie', once('Catégorie')], ['Bibliothèque', once('Bibliothèque')], ['Début', once('Début')], ['Abonnement', once('Abonnement')], ['Expire le', once('Expire le')]]);
+  const used = new Set(['Prénom', 'Nom de famille', 'Nom', 'Civilité', 'E-mail', 'Téléphone mobile', 'Téléphone', 'Adresse', 'Code postal', 'Ville', 'Pays', 'Catégorie', 'Bibliothèque', 'Début', 'Abonnement', 'Expire le', 'N° de carte']);
+  sec('Informations personnelles', [['Civilité', civ], ['Date de naissance', once('Date de naissance')], ['Langue', once('Langue')], ...[...by].filter(([l]) => !used.has(l) && l !== 'Date de naissance' && l !== 'Langue').map(([l, v]) => [l, v.join(' · ')])]);
+  return { name: fullName, card: once('N° de carte') ?? '', subtitle: once('Catégorie') ?? '', sections };
 }

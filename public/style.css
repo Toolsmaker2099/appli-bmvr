@@ -85,3 +85,8 @@ pre{white-space:pre-wrap;word-break:break-word;background:var(--card);border:1px
 .seg button{flex:0 0 auto;padding:8px 14px;border-radius:999px;border:0;background:var(--chip);color:var(--fg);font:inherit;font-size:.9rem}
 .seg button.on{background:var(--accent);color:var(--accent-fg);font-weight:600}
 .fav-btn{background:var(--chip);color:var(--fg)}
+
+.profile-hero{display:flex;gap:14px;align-items:center;background:var(--accent);color:var(--accent-fg);border-radius:18px;padding:18px;margin-bottom:12px}
+.profile-hero .avatar{flex:0 0 56px;height:56px;border-radius:50%;background:rgba(255,255,255,.2);display:grid;place-items:center;font-weight:700;font-size:1.2rem}
+.profile-id h3{margin:0;font-size:1.15rem}.profile-id p{margin:2px 0 0;opacity:.9}.profile-id .hint{color:inherit;opacity:.8}
+.profile-sec{padding:14px 14px 4px;margin-bottom:12px}.profile-sec h4{margin:0 0 6px;font-size:.8rem;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)}
