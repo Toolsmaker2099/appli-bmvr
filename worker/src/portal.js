@@ -506,9 +506,9 @@ export async function searchCatalogue(creds, query, fetchFn = fetch, debug = fal
       const stock = failIfError(await c.get(token, 'notice', { id: r.id, locale: 'fr', aspect: 'Stock' }), 'Exemplaires');
       const copies = parseCopies(stock);
       r.copiesTotal = copies.length;
-      r.copiesAvailable = copies.filter((x) => x.available).length;
+      r.copiesAvailable = copies.filter((x) => x.available && !x.held).length;
       r.nextReturn = copies.filter((x) => !x.available).map((x) => x.due).filter(Boolean).sort()[0] || '';
-      r.copies = copies.slice(0, 60).map(({ branch, place, callNumber, status, available, due }) => ({ branch, place, callNumber, status, available, due }));
+      r.copies = copies.slice(0, 60).map(({ branch, place, callNumber, status, available, due, stat, held }) => ({ branch, place, callNumber, status, available, due, stat, held }));
       r.reservable = stock?.canReserve !== false && copies.some((x) => x.canReserve);
     } catch { r.reservable = null; }
   }));
@@ -539,6 +539,8 @@ export function parseCopies(stock) {
         status: statDesc,
         available: String(d.stat ?? '').toUpperCase() === 'DI' || /^disponible/i.test(statDesc),
         canReserve: bool(d.copyCanReserve),
+        stat: String(d.stat ?? '').toUpperCase(),
+        held: Number(d.resv_cur) > 0 || bool(d.isReserved) || /\(r[ée]serv[ée]\)/i.test(statDesc),
         due: dueKey ? toISODate(d[dueKey], d.dateFormat) : null,
       });
     }

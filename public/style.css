@@ -156,3 +156,4 @@ button.danger{color:#b3261e}
 .copy-what{color:var(--muted);min-width:0;overflow-wrap:anywhere}
 .copy-st{text-align:right;flex:none;max-width:55%}
 .copy-st.ok{color:var(--ok);font-weight:600}.copy-st.no{color:var(--warn)}
+.copy-st.wait{color:var(--warn);font-weight:600}.copy-st.no{color:var(--muted)}

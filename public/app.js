@@ -458,18 +458,20 @@ function searchCard(item) {
     const ex = el('details', 'notice copies');
     const by = new Map();
     for (const c of item.copies) { const k = c.branch || 'Bibliothèque'; if (!by.has(k)) by.set(k, []); by.get(k).push(c); }
-    const nb = [...by.values()].filter((l) => l.some((x) => x.available)).length;
+    const free = (x) => x.available && !x.held; // seul « Disponible » (non réservé) est vert
+    const tone = (x) => (free(x) ? 'ok' : x.available || ['PR', 'AT', 'TR'].includes(x.stat) ? 'wait' : 'no');
+    const nb = [...by.values()].filter((l) => l.some(free)).length;
     ex.append(el('summary', '', nb ? `📍 Où l'emprunter · disponible dans ${nb} bibliothèque${nb > 1 ? 's' : ''}` : '📍 Où le trouver · aucun exemplaire disponible'));
     const box = el('div', 'copy-list');
-    for (const [name, list] of [...by].sort((a, b) => b[1].filter((x) => x.available).length - a[1].filter((x) => x.available).length || a[0].localeCompare(b[0], 'fr'))) {
-      const n = list.filter((x) => x.available).length;
+    for (const [name, list] of [...by].sort((a, b) => b[1].filter(free).length - a[1].filter(free).length || a[0].localeCompare(b[0], 'fr'))) {
+      const n = list.filter(free).length;
       const g = el('div', 'copy-branch');
       const h = el('div', 'copy-h'); h.append(el('strong', '', name), el('span', 'chip ' + (n ? 'good' : 'warn'), n ? `${n} disponible${n > 1 ? 's' : ''}` : 'Aucun disponible'));
       g.append(h);
       for (const c of list) {
         const r = el('div', 'copy-row');
         r.append(el('span', 'copy-what', [c.place, c.callNumber].filter(Boolean).join(' · ') || 'Exemplaire'));
-        r.append(el('span', 'copy-st ' + (c.available ? 'ok' : 'no'), (c.available ? '✓ ' : '') + (c.status || (c.available ? 'Disponible' : 'Indisponible')) + (!c.available && c.due ? ` · retour le ${shortDate(c.due)}` : '')));
+        r.append(el('span', 'copy-st ' + tone(c), (free(c) ? '✓ ' : '') + (c.status || (c.available ? 'Disponible' : 'Indisponible')) + (!free(c) && c.due ? ` · retour le ${shortDate(c.due)}` : '')));
         g.append(r);
       }
       box.append(g);
