@@ -1,4 +1,4 @@
-import { fetchLoans, fetchServiceUrl, renewLoan, diagnose, fetchReservations, cancelReservation, searchCatalogue, reserveInfo, reserveRank, makeReservation, fetchAccount, deleteMessage, basketOp, fetchNotice, AuthError } from './portal.js';
+import { fetchLoans, fetchServiceUrl, renewLoan, diagnose, fetchReservations, cancelReservation, searchCatalogue, reserveInfo, reserveRank, makeReservation, fetchAccount, deleteMessage, withSession, basketOp, fetchNotice, AuthError } from './portal.js';
 
 // Relais multi-utilisateurs sans état : l'appli envoie les identifiants BMVR de la personne à chaque requête (HTTPS),
 // le relais s'en sert pour interroger le portail puis les oublie. Rien n'est stocké ni journalisé.
@@ -25,24 +25,25 @@ export default {
     }
 
     try {
-      const who = { username, password };
-      if (url.pathname === '/reservations') return json({ ...(await fetchReservations(who, fetch, body.debug === true)), fetchedAt: new Date().toISOString() }, 200, cors);
+      const READS = ['/loans', '/reservations', '/account', '/search', '/notice', '/reserve-info', '/basket'];
+      const who = { username, password, cache: READS.includes(url.pathname) && !(url.pathname === '/basket' && body.action && body.action !== 'list' && body.action !== 'content') };
+      if (url.pathname === '/reservations') return json({ ...(await withSession(who, (w) => fetchReservations(w, fetch, body.debug === true))), fetchedAt: new Date().toISOString() }, 200, cors);
       if (url.pathname === '/cancel') return json(await cancelReservation(who, body), 200, cors);
-      if (url.pathname === '/search') return json(await searchCatalogue(who, body.query, fetch, body.debug === true), 200, cors);
-      if (url.pathname === '/reserve-info') return json(await reserveInfo(who, body.id, fetch, body.debug === true), 200, cors);
+      if (url.pathname === '/search') return json(await withSession(who, (w) => searchCatalogue(w, body.query, fetch, body.debug === true)), 200, cors);
+      if (url.pathname === '/reserve-info') return json(await withSession(who, (w) => reserveInfo(w, body.id, fetch, body.debug === true)), 200, cors);
       if (url.pathname === '/reserve-rank') return json(await reserveRank(who, body), 200, cors);
       if (url.pathname === '/reserve') return json(await makeReservation(who, body), 200, cors);
-      if (url.pathname === '/account') return json({ ...(await fetchAccount(who, body.kind, fetch, body.debug === true)), fetchedAt: new Date().toISOString() }, 200, cors);
+      if (url.pathname === '/account') return json({ ...(await withSession(who, (w) => fetchAccount(w, body.kind, fetch, body.debug === true))), fetchedAt: new Date().toISOString() }, 200, cors);
       if (url.pathname === '/delete-message') return json(await deleteMessage(who, body.id), 200, cors);
-      if (url.pathname === '/basket') return json(await basketOp(who, body, fetch, body.debug === true), 200, cors);
-      if (url.pathname === '/notice') return json(await fetchNotice(who, body.id, fetch, body.debug === true), 200, cors);
+      if (url.pathname === '/basket') return json(await withSession(who, (w) => basketOp(w, body, fetch, body.debug === true)), 200, cors);
+      if (url.pathname === '/notice') return json(await withSession(who, (w) => fetchNotice(w, body.id, fetch, body.debug === true)), 200, cors);
       if (url.pathname === '/renew') return json(await renewLoan({ username, password }, body.documentId), 200, cors);
       if (url.pathname === '/service') {
         const trace = [];
         try { return json({ url: await fetchServiceUrl({ username, password }, body.service, fetch, trace), trace }, 200, cors); } catch (e) { return json({ error: e.message, trace }, e instanceof AuthError ? 401 : 502, cors); }
       }
       if (body.diagnostic === true) return json(await diagnose({ username, password }), 200, cors);
-      const r = await fetchLoans({ username, password }, fetch, body.debug === true);
+      const r = await withSession(who, (w) => fetchLoans(w, fetch, body.debug === true));
       return json({ ...r, fetchedAt: new Date().toISOString() }, 200, cors);
     } catch (e) {
       return json({ error: e.message }, e instanceof AuthError ? 401 : 502, cors);

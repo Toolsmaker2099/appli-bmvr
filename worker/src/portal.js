@@ -36,6 +36,8 @@ function makeClient(fetchFn) {
   const base = { 'X-microsite-id': 'mainSite', 'User-Agent': 'Mozilla/5.0 (compatible; appli-bmvr)' };
 
   return {
+    snapshot: () => ({ apiToken, cookies: [...cookies] }),
+    restore(snap) { apiToken = snap.apiToken; cookies = new Map(snap.cookies); },
     // Comme l'appli web : charger settings.js d'abord (il ouvre la session et donne le jeton d'API), en gardant les cookies.
     async init() {
       const res = await fetchFn(`${API}/api/settings.js`, { headers: { ...base } });
@@ -211,12 +213,9 @@ export function parseLoans(loans) {
     .sort((a, b) => a.dueDate.localeCompare(b.dueDate));
 }
 
-export async function fetchLoans({ username, password }, fetchFn = fetch, debug = false) {
-  const c = makeClient(fetchFn);
-  await c.init();
-  const session = await c.post(null, 'authenticate', { username: username.includes('@') ? username.toLowerCase() : username, password, locale: 'fr' });
-  if (!session.token) throw new AuthError(`Connexion refusée : ${session.error || 'identifiants incorrects ?'}`);
-  await c.connect();
+export async function fetchLoans(creds, fetchFn = fetch, debug = false) {
+  const { c, token } = await login(creds, fetchFn);
+  const session = { token };
   // Le portail attend parfois la langue, parfois non : on essaie les deux et on garde la première réponse valide.
   let loans, lastErr;
   for (const params of [{ locale: 'fr' }, {}, { locale: 'fr', id: '' }]) {
@@ -313,13 +312,42 @@ export async function renewLoan({ username, password }, documentId, fetchFn = fe
 
 // ---------- Réservations, recherche ----------
 // Connexion commune : session + jeton, prêts à interroger le portail.
-async function login({ username, password }, fetchFn) {
+// Session gardée quelques minutes dans la mémoire du relais (jamais sur disque, jamais le mot de passe : seulement le jeton de session,
+// rangé sous une empreinte irréversible des identifiants). Les lectures suivantes évitent les 3 étapes de connexion.
+const SESSIONS = new Map();
+const SESSION_TTL = 5 * 60 * 1000;
+async function sessionKey({ username, password }) {
+  const d = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`${username}\u0000${password}`));
+  return [...new Uint8Array(d)].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+async function login(creds, fetchFn) {
+  const { username, password } = creds;
+  const key = creds.cache ? await sessionKey(creds) : null;
+  const now = Date.now();
+  if (key) {
+    const hit = SESSIONS.get(key);
+    if (hit && now - hit.at < SESSION_TTL) { const c = makeClient(fetchFn); c.restore(hit.snap); return { c, token: hit.token }; }
+    for (const [k, v] of SESSIONS) if (now - v.at >= SESSION_TTL) SESSIONS.delete(k);
+    if (SESSIONS.size > 300) SESSIONS.clear();
+  }
   const c = makeClient(fetchFn);
   await c.init();
   const session = await c.post(null, 'authenticate', { username: username.includes('@') ? username.toLowerCase() : username, password, locale: 'fr' });
   if (!session.token) throw new AuthError(`Connexion refusée : ${session.error || 'identifiants incorrects ?'}`);
   await c.connect();
+  if (key) SESSIONS.set(key, { at: now, token: session.token, snap: c.snapshot() });
   return { c, token: session.token };
+}
+// Si une session gardée a expiré côté portail, on l'oublie et on recommence une fois avec une connexion neuve.
+export async function withSession(creds, fn) {
+  if (!creds.cache) return fn(creds);
+  const key = await sessionKey(creds);
+  const hadHit = SESSIONS.has(key);
+  try { return await fn(creds); } catch (e) {
+    if (!hadHit || e instanceof AuthError) throw e;
+    SESSIONS.delete(key);
+    return fn(creds);
+  }
 }
 
 const failIfError = (r, what) => {
