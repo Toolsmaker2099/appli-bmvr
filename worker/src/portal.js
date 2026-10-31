@@ -691,14 +691,31 @@ export function parseMessages(res) {
 }
 
 export async function deleteMessage(creds, messageId, fetchFn = fetch) {
-  const id = String(messageId ?? '').split('|')[0];
-  if (!/^[A-Za-z0-9_.:-]{1,60}$/.test(id)) throw new Error('Message invalide');
+  const num = String(messageId ?? '').split('|')[0];
+  if (!/^[A-Za-z0-9_.:-]{1,60}$/.test(num)) throw new Error('Message invalide');
   const { c, token } = await login(creds, fetchFn);
-  const r = await c.post(token, 'deleteMessage', { messageId: id });
-  if (r?.faultString || r?.error) throw new Error('Suppression refusée : ' + String(r.faultString || r.error).slice(0, 160));
-  const left = parseMessages(await c.get(token, 'messages', { locale: 'fr' }).catch(() => ({ items: [] })));
-  if (left.some((m) => m.id.split('|')[0] === id)) throw new Error('Le portail n\'a pas supprimé ce message.');
-  return { ok: true };
+  const rawList = async () => {
+    for (const [path, params] of [['messages', { locale: 'fr' }], ['accountPage', { type: 'messages', pageNo: 1, pageSize: 100, locale: 'fr' }]]) {
+      try { const r = await c.get(token, path, params); const l = Array.isArray(r) ? r : r?.items ?? r?.messages ?? []; if (l.length) return l; } catch { /* suivant */ }
+    }
+    return [];
+  };
+  const list = await rawList();
+  const hit = list.find((m) => String((m?.data ?? m)?.number ?? m?.number) === num);
+  const d = hit?.data ?? hit ?? {};
+  // Le portail attend l'identifiant propre au message : on essaie ceux que porte l'élément, puis le numéro.
+  const cands = [...new Set([hit?.id, hit?.messageId, d.id, d.messageId, d.guid, d.uid, d.number, num].filter((v) => v != null && v !== '').map(String))];
+  const errs = [];
+  for (const cand of cands) {
+    try {
+      const r = await c.post(token, 'deleteMessage', { messageId: cand });
+      if (r?.faultString || r?.errorReponse) { errs.push(`${cand}: ${String(r.faultString || r.error || r.code).slice(0, 80)}`); continue; }
+      const left = (await rawList()).some((m) => String((m?.data ?? m)?.number ?? m?.number) === num);
+      if (!left) return { ok: true };
+      errs.push(`${cand}: sans effet`);
+    } catch (e) { errs.push(`${cand}: ${String(e.message).replace(/^Portail: deleteMessage → /, '').slice(0, 80)}`); }
+  }
+  throw new Error(`Suppression refusée par le portail (${errs.join(' | ')} ; champs: ${Object.keys(hit ?? {}).join(',')}${hit?.data ? ' / data: ' + Object.keys(hit.data).join(',') : ''})`);
 }
 
 export async function fetchAccount(creds, kind, fetchFn = fetch, debug = false) {
