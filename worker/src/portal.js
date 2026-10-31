@@ -516,14 +516,9 @@ export function parseSearch(res) {
   }).filter((r) => r.id);
 }
 
-export async function searchCatalogue(creds, query, fetchFn = fetch, debug = false) {
-  const q = String(query ?? '').trim().slice(0, 200);
-  if (!q) throw new Error('Saisis un titre, un auteur ou un mot-clé');
-  const { c, token } = await login(creds, fetchFn);
-  const res = failIfError(await c.post(token, 'search', { query: [q], queryid: 'NONE', sf: '*', includeFacets: false, pageNo: 1, pageSize: 20, locale: 'fr' }), 'Recherche');
-  const results = parseSearch(res);
-  // Disponibilité et « réservable » : on lit les exemplaires de chaque résultat (aspect Stock) et on suit les indicateurs du portail.
-  await Promise.all(results.slice(0, 20).map(async (r) => {
+// Disponibilité et « réservable » : on lit les exemplaires de chaque résultat (aspect Stock) et on suit les indicateurs du portail.
+async function attachStock(c, token, results, max = 30) {
+  await Promise.all(results.slice(0, max).map(async (r) => {
     try {
       const stock = failIfError(await c.get(token, 'notice', { id: r.id, locale: 'fr', aspect: 'Stock' }), 'Exemplaires');
       const copies = parseCopies(stock);
@@ -534,6 +529,15 @@ export async function searchCatalogue(creds, query, fetchFn = fetch, debug = fal
       r.reservable = stock?.canReserve !== false && copies.some((x) => x.canReserve);
     } catch { r.reservable = null; }
   }));
+}
+
+export async function searchCatalogue(creds, query, fetchFn = fetch, debug = false, page = 1) {
+  const q = String(query ?? '').trim().slice(0, 200);
+  if (!q) throw new Error('Saisis un titre, un auteur ou un mot-clé');
+  const { c, token } = await login(creds, fetchFn);
+  const res = failIfError(await c.post(token, 'search', { query: [q], queryid: 'NONE', sf: '*', includeFacets: false, pageNo: Math.min(Math.max(Number(page) || 1, 1), 10), pageSize: 20, locale: 'fr' }), 'Recherche');
+  const results = parseSearch(res);
+  await attachStock(c, token, results);
   return debug ? { results, shape: shapeOf(res), firstKeys: Object.keys(res?.resultSet?.[0] ?? {}), metaKeys: Object.keys(res?.resultSet?.[0]?.meta ?? {}) } : { results, total: res.totalHits ?? res.total ?? results.length };
 }
 
@@ -866,6 +870,7 @@ export async function basketOp(creds, body, fetchFn = fetch, debug = false) {
       }
       if (!res) throw lastErr;
       const results = parseSearch(res);
+      await attachStock(c, token, results, 40); // plafond de sous-requêtes du relais
       return debug ? { results, shape: shapeOf(res) } : { results };
     }
     default: throw new Error('Action inconnue');

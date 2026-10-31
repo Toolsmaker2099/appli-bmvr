@@ -42,7 +42,7 @@ export default {
       const who = { username, password, cache: READS.includes(url.pathname) && !(url.pathname === '/basket' && body.action && body.action !== 'list' && body.action !== 'content') };
       if (url.pathname === '/reservations') return json({ ...(await withSession(who, (w) => fetchReservations(w, fetch, body.debug === true))), fetchedAt: new Date().toISOString() }, 200, cors);
       if (url.pathname === '/cancel') return json(await cancelReservation(who, body), 200, cors);
-      if (url.pathname === '/search') return json(await withSession(who, (w) => searchCatalogue(w, body.query, fetch, body.debug === true)), 200, cors);
+      if (url.pathname === '/search') return json(await withSession(who, (w) => searchCatalogue(w, body.query, fetch, body.debug === true, body.page)), 200, cors);
       if (url.pathname === '/reserve-info') return json(await withSession(who, (w) => reserveInfo(w, body.id, fetch, body.debug === true)), 200, cors);
       if (url.pathname === '/reserve-rank') return json(await reserveRank(who, body), 200, cors);
       if (url.pathname === '/reserve') return json(await makeReservation(who, body), 200, cors);
