@@ -175,6 +175,7 @@ function card(l) {
     det.append(el('summary', '', 'Plus de détails'), more);
     li.append(det);
   }
+  addFavButton(li, l);
   return li;
 }
 
@@ -266,6 +267,7 @@ function resaCard(r) {
     };
     row.append(btn); li.append(row, msg);
   }
+  addFavButton(li, r);
   return li;
 }
 
@@ -427,6 +429,14 @@ function favSheet(item, li, row) {
     };
     sheet.append(ok, out);
   }).catch((e) => { msg.textContent = e.message; msg.className = 'hint msg err'; });
+}
+
+function addFavButton(li, item) {
+  if (!item.coverId) return;
+  const row = el('div', 'btn-row');
+  const fav = el('button', 'secondary small fav-btn', '♡ Favoris');
+  fav.onclick = () => { fav.remove(); favSheet({ id: item.coverId }, li); };
+  row.append(fav); li.append(row);
 }
 
 // ---------- mon espace ----------
