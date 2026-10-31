@@ -719,8 +719,8 @@ function messageCard(it, unread) {
 }
 
 // Pictogramme : propre à chacune des 3 listes standard (d'après leur titre), identique pour toutes les listes personnalisées.
-const DEFAULT_ICONS = [[/favori|c[œo]eur|pr[ée]f[ée]r/i, '❤️'], [/lire|lecture|plus tard|voir|envie|attente/i, '🔖'], [/lu\b|lus\b|d[ée]j[àa]|termin|fini|emprunt|historique/i, '✅']];
-const DEFAULT_FALLBACK = ['❤️', '🔖', '✅'];
+const DEFAULT_ICONS = [[/favori|c[œo]eur|pr[ée]f[ée]r/i, '❤️'], [/lire|lecture|plus tard|voir|envie|attente/i, '⏳'], [/lu\b|lus\b|d[ée]j[àa]|termin|fini|emprunt|historique/i, '✅']];
+const DEFAULT_FALLBACK = ['❤️', '⏳', '✅'];
 function listIcon(name, isDefault, rank = 0) {
   if (!isDefault) return '📚';
   return DEFAULT_ICONS.find(([re]) => re.test(name))?.[1] ?? DEFAULT_FALLBACK[rank % DEFAULT_FALLBACK.length];
