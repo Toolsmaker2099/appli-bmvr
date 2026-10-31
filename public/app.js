@@ -10,6 +10,25 @@ const store = {
 const daysLeft = (iso) => Math.round((new Date(iso + 'T00:00:00') - new Date(new Date().toDateString())) / 86400000);
 const label = (d) => (d < 0 ? `En retard de ${-d} j` : d === 0 ? "Aujourd'hui" : d === 1 ? 'Demain' : `Dans ${d} j`);
 
+// Couverture : image du portail BMVR d'abord (la même que sur le site) ; si le portail n'a qu'une vignette générique
+// (256×256), on essaie Open Library via l'ISBN ; sinon rien n'est affiché.
+function cover(l) {
+  const img = document.createElement('img');
+  img.className = 'cover';
+  img.alt = '';
+  img.loading = 'lazy';
+  img.referrerPolicy = 'no-referrer';
+  const sources = [];
+  if (l.coverId) sources.push({ url: 'https://www.bmvr.marseille.fr/in/rest/Thumb/image?id=' + encodeURIComponent(l.coverId), generic: true });
+  if (l.isbn) sources.push({ url: `https://covers.openlibrary.org/b/isbn/${encodeURIComponent(l.isbn)}-M.jpg?default=false`, generic: false });
+  let i = 0;
+  const next = () => { if (i < sources.length) img.src = sources[i++].url; else img.remove(); };
+  img.onerror = next;
+  img.onload = () => { if (sources[i - 1]?.generic && img.naturalWidth === 256 && img.naturalHeight === 256) next(); };
+  next();
+  return img;
+}
+
 function render({ loans, fetchedAt }, note = '') {
   $('loans').hidden = false;
   $('diag').hidden = false;
@@ -20,17 +39,7 @@ function render({ loans, fetchedAt }, note = '') {
     const d = daysLeft(l.dueDate);
     const li = document.createElement('li');
     li.className = d < 0 ? 'late' : d <= 3 ? 'soon' : '';
-    if (l.isbn) {
-      // Couverture via Open Library (adresse = ISBN du livre ; aucune donnée personnelle). Masquée si introuvable.
-      const img = document.createElement('img');
-      img.className = 'cover';
-      img.alt = '';
-      img.loading = 'lazy';
-      img.referrerPolicy = 'no-referrer';
-      img.src = `https://covers.openlibrary.org/b/isbn/${encodeURIComponent(l.isbn)}-M.jpg?default=false`;
-      img.onerror = () => img.remove();
-      li.append(img);
-    }
+    if (l.coverId || l.isbn) li.append(cover(l));
     const info = document.createElement('div');
     const t = document.createElement('strong'); t.textContent = l.title;
     const a = document.createElement('small'); a.textContent = l.author;

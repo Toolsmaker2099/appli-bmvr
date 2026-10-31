@@ -137,6 +137,8 @@ export function parseLoans(loans) {
       author: String(it.author ?? '').trim(),
       dueDate: toISODate(it.returnDate ?? it.dateDue ?? it.dueDate, it.dateFormat),
       renewable: it.isRenewable ?? null,
+      // Identifiant de notice du portail (même règle que son appli web) → image de couverture publique du portail.
+      coverId: /^\d{1,10}$/.test(String(it.seqNo ?? '')) ? `p::usmarcdef_${String(it.seqNo).padStart(10, '0')}` : '',
       isbn: String(it.isbn13 || it.isbn10 || it.isbn || '').replace(/[^0-9Xx]/g, ''),
     }))
     .filter((l) => l.dueDate)
