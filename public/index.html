@@ -60,10 +60,19 @@
   <section id="view-chercher" class="view" hidden>
     <form id="searchForm" class="searchbar">
       <input id="q" type="search" placeholder="Titre, auteur, mot-clé…" enterkeyhint="search" autocomplete="off">
+      <button id="scanBtn" class="icon-btn scan" type="button" aria-label="Scanner un code-barres" title="Scanner un code-barres (ISBN)">📷</button>
       <button class="primary" type="submit">Chercher</button>
     </form>
+    <div id="searchTools" class="tools" hidden></div>
     <p id="searchStatus" class="hint"></p>
     <ul id="searchList" class="cards"></ul>
+    <button id="moreBtn" class="secondary" hidden>Voir plus de résultats</button>
+    <div id="scanBox" class="scanbox" hidden>
+      <video id="scanVideo" playsinline muted></video>
+      <div class="scan-frame"></div>
+      <p class="scan-hint">Placez le code-barres du livre dans le cadre</p>
+      <button id="scanClose" class="primary">Fermer</button>
+    </div>
   </section>
 
   <!-- MON ESPACE -->

@@ -534,20 +534,94 @@ function searchCard(item) {
   return li;
 }
 
-$('searchForm').onsubmit = async (ev) => {
+// ---------- recherche : filtres, tri, pagination, scan ----------
+const SS = { q: '', page: 1, items: [], more: false, avail: false, resa: false, type: '', branch: '', sort: 'pertinence', busy: false };
+const fieldOf = (it, label) => (it.fields.find(([l]) => l === label) || [])[1] || '';
+const yearOf = (it) => Number((fieldOf(it, 'Date').match(/\d{4}/) || [0])[0]);
+function applySearch() {
+  let l = SS.items.slice();
+  if (SS.avail) l = l.filter((it) => it.copiesAvailable > 0);
+  if (SS.resa) l = l.filter((it) => it.reservable);
+  if (SS.type) l = l.filter((it) => fieldOf(it, 'Type de document') === SS.type);
+  if (SS.branch) l = l.filter((it) => (it.copies || []).some((c) => c.branch === SS.branch && c.available && !c.held));
+  if (SS.sort === 'titre') l.sort((a, b) => a.title.localeCompare(b.title, 'fr'));
+  if (SS.sort === 'recent') l.sort((a, b) => yearOf(b) - yearOf(a));
+  return l;
+}
+function renderSearch() {
+  const tools = $('searchTools'), list = $('searchList');
+  tools.hidden = !SS.items.length; tools.replaceChildren();
+  if (SS.items.length) {
+    const chip = (txt, on, fn) => { const b = el('button', 'fchip' + (on ? ' on' : ''), txt); b.onclick = fn; return b; };
+    const row1 = el('div', 'frow');
+    row1.append(chip('✓ Disponible', SS.avail, () => { SS.avail = !SS.avail; renderSearch(); }), chip('🔖 Réservable', SS.resa, () => { SS.resa = !SS.resa; renderSearch(); }));
+    const select = (label, value, opts, fn) => { const sel = el('select', 'fsel'); sel.append(new Option(label, '')); for (const o of opts) sel.append(new Option(o, o)); sel.value = value; sel.onchange = () => fn(sel.value); return sel; };
+    const types = [...new Set(SS.items.map((it) => fieldOf(it, 'Type de document')).filter(Boolean))].sort();
+    const branches = [...new Set(SS.items.flatMap((it) => (it.copies || []).filter((c) => c.available && !c.held).map((c) => c.branch)).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'fr'));
+    const row2 = el('div', 'frow');
+    if (types.length > 1) row2.append(select('Tous les types', SS.type, types, (v) => { SS.type = v; renderSearch(); }));
+    if (branches.length) row2.append(select('Toutes les bibliothèques', SS.branch, branches, (v) => { SS.branch = v; renderSearch(); }));
+    const sort = el('select', 'fsel'); for (const [v, t] of [['pertinence', 'Tri : pertinence'], ['titre', 'Tri : titre A→Z'], ['recent', 'Tri : plus récent']]) sort.append(new Option(t, v));
+    sort.value = SS.sort; sort.onchange = () => { SS.sort = sort.value; renderSearch(); }; row2.append(sort);
+    tools.append(row1, row2);
+  }
+  const shown = applySearch();
+  list.replaceChildren(...shown.map(searchCard));
+  const filtered = shown.length !== SS.items.length;
+  $('searchStatus').textContent = !SS.items.length ? (SS.q ? 'Aucun résultat.' : '') : `${shown.length} résultat${shown.length > 1 ? 's' : ''}${filtered ? ` sur ${SS.items.length} chargés` : ''}`;
+  $('moreBtn').hidden = !SS.more;
+  if (SS.items.length && !shown.length) list.append(emptyState('🔎', 'Aucun résultat avec ces filtres', 'Retirez un filtre ou chargez plus de résultats.'));
+}
+async function runSearch(more) {
+  if (SS.busy) return;
+  SS.busy = true;
+  if (!more) { SS.q = $('q').value.trim(); SS.page = 1; SS.items = []; SS.avail = SS.resa = false; SS.type = SS.branch = ''; $('searchList').replaceChildren(); $('searchTools').hidden = true; }
+  else SS.page += 1;
+  $('searchStatus').textContent = more ? 'Chargement…' : 'Recherche…'; $('moreBtn').disabled = true;
+  try {
+    const data = await call('/search', { query: SS.q, page: SS.page });
+    const known = new Set(SS.items.map((it) => it.id));
+    SS.items.push(...data.results.filter((it) => !known.has(it.id)));
+    SS.more = data.results.length >= 20 && SS.page < 10;
+    renderSearch();
+  } catch (e) { if (more) SS.page -= 1; $('searchStatus').textContent = 'Recherche impossible : ' + e.message; }
+  finally { SS.busy = false; $('moreBtn').disabled = false; }
+}
+$('searchForm').onsubmit = (ev) => {
   ev.preventDefault();
   if (!hasCreds()) return needLogin($('searchList'), $('searchStatus'));
-  const q = $('q').value.trim();
-  if (!q) return;
-  $('q').blur();
-  $('searchStatus').textContent = 'Recherche…'; $('searchList').replaceChildren();
-  try {
-    const data = await call('/search', { query: q });
-    $('searchStatus').textContent = data.results.length ? `${data.results.length} résultat${data.results.length > 1 ? 's' : ''}` : 'Aucun résultat.';
-    for (const it of data.results) $('searchList').append(searchCard(it));
-  } catch (e) { $('searchStatus').textContent = 'Recherche impossible : ' + e.message; }
+  if (!$('q').value.trim()) return;
+  $('q').blur(); runSearch(false);
 };
+$('moreBtn').onclick = () => runSearch(true);
 
+// Scan du code-barres d'un livre : détecteur du navigateur s'il existe, sinon bibliothèque ZXing chargée à la demande.
+let scanStop = null;
+async function startScan() {
+  const box = $('scanBox'), video = $('scanVideo');
+  let stream, stopped = false;
+  const finish = (code) => { stopped = true; stream?.getTracks().forEach((t) => t.stop()); box.hidden = true; scanStop = null; if (code) { $('q').value = code; $('searchForm').requestSubmit(); } };
+  scanStop = () => finish('');
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false });
+  } catch { alert("Impossible d'ouvrir l'appareil photo : autorisez-le dans les réglages du navigateur."); scanStop = null; return; }
+  box.hidden = false; video.srcObject = stream; await video.play().catch(() => {});
+  const ok = (v) => /^(97[89]\d{10}|\d{13}|\d{8}|\d{10})$/.test(String(v).replace(/[^0-9Xx]/g, '')) ? String(v).replace(/[^0-9Xx]/g, '') : '';
+  if ('BarcodeDetector' in window) {
+    const det = new BarcodeDetector({ formats: ['ean_13', 'ean_8', 'upc_a', 'code_128'] });
+    const loop = async () => { if (stopped) return; try { const r = await det.detect(video); const code = r.map((x) => ok(x.rawValue)).find(Boolean); if (code) return finish(code); } catch {} setTimeout(loop, 250); };
+    loop();
+  } else {
+    try {
+      if (!window.ZXing) await new Promise((res, rej) => { const sc = document.createElement('script'); sc.src = 'https://unpkg.com/@zxing/library@0.21.3/umd/index.min.js'; sc.onload = res; sc.onerror = rej; document.head.append(sc); });
+      const reader = new ZXing.BrowserMultiFormatReader();
+      const loop = async () => { if (stopped) return; try { const r = await reader.decodeFromVideoElement(video); const code = ok(r.getText()); if (code) return finish(code); } catch {} setTimeout(loop, 250); };
+      loop();
+    } catch { finish(''); alert('Le scan n’est pas disponible sur cet appareil : saisissez le numéro ISBN à la main.'); }
+  }
+}
+$('scanBtn').onclick = () => { if (!hasCreds()) return needLogin($('searchList'), $('searchStatus')); startScan(); };
+$('scanClose').onclick = () => scanStop?.();
 
 // ---------- favoris ----------
 function favSheet(item, li, row) {
