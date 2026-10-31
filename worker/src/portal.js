@@ -406,8 +406,9 @@ export function parseSearch(res) {
     // Comme la carte du site officiel : auteur / éditeur / date viennent de « meta » (meta.author, meta.publisher…), le type de
     // « TypeOfDocumentFacet ». Les intitulés sont toujours écrits en français ici ; un champ inconnu n'est pas affiché.
     const FR = [
-      [/^(authors?|creators?|auteurs?)$/i, 'Auteurs'], [/^(publishers?|editors?|[ée]diteurs?)$/i, 'Éditeurs'],
-      [/^(date|year|publicationDate|datePublished|dateOfPublication|pubDate|annee)$/i, 'Date'],
+      [/^(authors?|creators?|auteurs?)$/i, 'Auteurs'], [/^(publishers?|publisherName|editors?|[ée]diteurs?)$/i, 'Éditeurs'],
+      [/^(date|year|dateIssued\w*|publicationDate|datePublished|dateOfPublication|pubDate|annee)$/i, 'Date'],
+      [/^StockShelfmark$/i, 'Cote'], [/^DomainFacet$/i, 'Domaine'],
       [/^(type|typeOfDocument\w*|contentType|docType|support)$/i, 'Type de document'],
       [/^(language|langues?)$/i, 'Langue'], [/^(subjects?|topics?|sujets?)$/i, 'Sujets'], [/^genres?$/i, 'Genre'],
       [/^collections?$/i, 'Collection'], [/^series$/i, 'Série'], [/^(summary|abstract|r[ée]sum[ée])$/i, 'Résumé'],
