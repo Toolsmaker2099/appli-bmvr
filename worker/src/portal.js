@@ -530,7 +530,7 @@ export async function reserveRank(creds, { id, volume, branch, copyNo }, fetchFn
 export async function makeReservation(creds, { id, volume, branch, copyNo }, fetchFn = fetch) {
   check(id);
   if (!/^[A-Za-z0-9_-]{1,20}$/.test(branch ?? '')) throw new Error('Bibliothèque de retrait invalide');
-  if (copyNo != null && !/^[A-Za-z0-9_-]{1,40}$/.test(String(copyNo))) throw new Error('Exemplaire invalide');
+  if (copyNo && !/^[^\s"\\<>]{1,60}$/.test(String(copyNo))) throw new Error('Exemplaire invalide');
   const { c, token } = await login(creds, fetchFn);
   const vol = volume || null;
   await c.post(token, 'reservationVolumes', { id, locale: 'fr' }).catch(() => null);
