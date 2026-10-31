@@ -627,11 +627,31 @@ export async function fetchAccount(creds, kind, fetchFn = fetch, debug = false) 
   const { c, token } = await login(creds, fetchFn);
   if (kind === 'profile') {
     const p = failIfError(await c.get(token, 'profile', { locale: 'fr' }), 'Profil');
-    const flatP = {};
-    const walk = (o, depth = 0) => { for (const [k, v] of Object.entries(o ?? {})) { if (v && typeof v === 'object' && !Array.isArray(v) && depth < 2) walk(v, depth + 1); else if (!(k in flatP)) flatP[k] = v; } };
-    walk(p);
-    const fields = genericFields(flatP);
-    return debug ? { items: [{ id: 'profil', title: '', fields }], shape: shapeOf(p) } : { items: [{ id: 'profil', title: '', fields }] };
+    // Le profil est une liste de propriétés { name, value: { Answer } } : on les traduit par mots-clés du nom.
+    const PROP_FR = [
+      [/first.?name|prenom|given/i, 'Prénom'], [/last.?name|family|surname|nom.?de.?famille/i, 'Nom de famille'], [/^(full.?name|name|nom)$/i, 'Nom'],
+      [/e.?mail|courriel|mel/i, 'E-mail'], [/mobile|cell|portable/i, 'Téléphone mobile'], [/phone|tel/i, 'Téléphone'],
+      [/zip|postal|post.?code/i, 'Code postal'], [/city|town|ville|locality/i, 'Ville'], [/country|pays/i, 'Pays'], [/address|adresse|street|rue/i, 'Adresse'],
+      [/birth|naissance/i, 'Date de naissance'], [/expir|end.?date|valid/i, 'Expire le'], [/subscri|abonn|activation|start.?date/i, 'Abonnement'],
+      [/card|barcode|login|user.?id|identifier|numero|number/i, 'N° de carte'], [/categor|profile.?type|type/i, 'Catégorie'],
+      [/lang/i, 'Langue'], [/civil|title|gender|sex|salutation/i, 'Civilité'], [/branch|library|biblio/i, 'Bibliothèque'],
+    ];
+    const props = Array.isArray(p.properties) ? p.properties : [];
+    const fields = []; const seenP = new Set();
+    for (const pr of props) {
+      const raw = pr?.value?.Answer ?? pr?.value;
+      let v = raw == null || typeof raw === 'object' ? '' : String(raw).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+      if (!v || /^(null|undefined|false)$/i.test(v)) continue;
+      const nm = String(pr.name ?? '');
+      const label = PROP_FR.find(([re]) => re.test(nm))?.[1];
+      if (!label) continue;
+      if (/date|birth|naissance|expir/i.test(nm) || /^(Date de naissance|Expire le)$/.test(label)) v = frDate(toISODate(v)) || v;
+      if (seenP.has(label + v)) continue;
+      seenP.add(label + v);
+      fields.push([label, v.slice(0, 300)]);
+    }
+    if (!fields.length) fields.push(...genericFields(Object.fromEntries(Object.entries(p).filter(([, x]) => typeof x !== 'object'))));
+    return debug ? { items: [{ id: 'profil', title: '', fields }], shape: shapeOf(p), propertyNames: props.map((x) => x.name) } : { items: [{ id: 'profil', title: '', fields }] };
   }
   const type = ACCOUNT_KINDS[kind];
   if (!type) throw new Error('Rubrique inconnue');

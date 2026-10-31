@@ -523,7 +523,7 @@ async function openEspace() {
     body.append(ul); status.textContent = ESPACE[espaceKind];
     if (!items.length || items.every((it) => !it.fields.length)) {
       const b = el('button', 'link', 'Rien de lisible : envoyer un diagnostic'); const pre = el('pre'); pre.hidden = true;
-      b.onclick = async () => { pre.hidden = false; pre.textContent = 'Diagnostic en cours…'; try { const g = await call('/account', { kind: espaceKind, debug: true }); pre.textContent = JSON.stringify(g.shape, null, 1); } catch (e) { pre.textContent = 'Erreur : ' + e.message; } };
+      b.onclick = async () => { pre.hidden = false; pre.textContent = 'Diagnostic en cours…'; try { const g = await call('/account', { kind: espaceKind, debug: true }); pre.textContent = JSON.stringify({ shape: g.shape, propertyNames: g.propertyNames }, null, 1); } catch (e) { pre.textContent = 'Erreur : ' + e.message; } };
       body.append(b, pre);
     }
   } catch (e) { status.textContent = 'Impossible de charger : ' + e.message; }
