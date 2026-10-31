@@ -307,6 +307,7 @@ async function followChain(start, fetchFn, trace) {
     const loc = res.headers.get('Location');
     const nx = loc ? new URL(loc, url) : null;
     trace.push(`suite ${res.status} ${u.host}${u.pathname} [${[...u.searchParams.keys()].join(',')}]${names.length ? ' cookies:' + names.join('+') : ''}${nx ? ` → ${nx.host}${nx.pathname} [${[...nx.searchParams.keys()].join(',')}]` : ''}`);
+    if (!nx && res.status === 200 && /marsactu\.fr$/.test(u.host)) { const t = await res.text(); const cls = (t.match(/<body[^>]*class="([^"]*)"/i)?.[1] ?? '').split(/\s+/).filter((c) => /member|membre|logged|access|referrer|abonn|subscri|role|guest|visitor/i.test(c)); trace.push(`page finale : classes[${cls.join(' ')}] · « Je m'abonne » ×${(t.match(/je m['’]abonne/gi) || []).length} · « Accès bibliothèque » ×${(t.match(/acc[èe]s biblioth[èe]que/gi) || []).length} · « Se déconnecter/Déconnexion » ×${(t.match(/d[ée]connexion|se d[ée]connecter/gi) || []).length} · « Mon compte » ×${(t.match(/mon compte/gi) || []).length} · « Se connecter/Je me connecte » ×${(t.match(/se connecter|je me connecte/gi) || []).length}`); return; }
     if (!nx) { if (res.status === 200) { const t = (await res.text()).slice(0, 4000); const m = t.match(/(?:window\.location(?:\.href)?\s*=|location\.replace\(|http-equiv=["']refresh["'][^>]*url=)\s*["']?([^"')\s>]+)/i); if (m) trace.push(`page ${u.host} redirige (script/meta) vers ${m[1].slice(0, 120).replace(/[?&]((?:ticket|token|code)[^=]*)=[^&]*/gi, '?$1=XXX')}`); } return; }
     url = nx.toString();
   }
