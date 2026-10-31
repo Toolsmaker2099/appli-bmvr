@@ -21,7 +21,8 @@ export async function getApiToken(fetchFn = fetch) {
   return m[1];
 }
 
-function makeClient(apiToken, fetchFn) {
+function makeClient(fetchFn) {
+  let apiToken = null;
   let cookies = new Map();
   const cookieHeader = () => [...cookies].map(([k, v]) => `${k}=${v}`).join('; ');
   const keep = (res) => {
@@ -34,6 +35,14 @@ function makeClient(apiToken, fetchFn) {
   const base = { 'X-microsite-id': 'mainSite', 'User-Agent': 'Mozilla/5.0 (compatible; appli-bmvr)' };
 
   return {
+    // Comme l'appli web : charger settings.js d'abord (il ouvre la session et donne le jeton d'API), en gardant les cookies.
+    async init() {
+      const res = await fetchFn(`${API}/api/settings.js`, { headers: { ...base } });
+      keep(res);
+      const m = (await res.text()).match(/"apiToken":"([^"]+)"/);
+      if (!m) throw new Error("Jeton d'API du portail introuvable");
+      apiToken = m[1];
+    },
     async post(token, path, body, { binary = false, contentType = 'application/json' } = {}) {
       const raw = typeof body === 'string' ? body : JSON.stringify(body);
       const auth = binary ? `Bearer ${token} ${apiToken}` : `Bearer ${token} ${apiToken} ${checksum(raw)}`;
@@ -113,8 +122,8 @@ export function parseLoans(loans, resolved = {}) {
 }
 
 export async function fetchLoans({ username, password }, fetchFn = fetch, debug = false) {
-  const apiToken = await getApiToken(fetchFn);
-  const c = makeClient(apiToken, fetchFn);
+  const c = makeClient(fetchFn);
+  await c.init();
   const session = await c.post(null, 'authenticate', { username: username.includes('@') ? username.toLowerCase() : username, password, locale: 'fr' });
   if (!session.token) throw new AuthError(`Connexion refusée : ${session.error || 'identifiants incorrects ?'}`);
   await c.connect();
@@ -149,8 +158,8 @@ export function shapeOf(v, depth = 0) {
 // Diagnostic : statuts HTTP des principaux appels après connexion, sans aucune donnée personnelle (les corps ne sont pas renvoyés
 // sauf pour les erreurs, tronqués). Sert à comprendre un refus du portail.
 export async function diagnose({ username, password }, fetchFn = fetch) {
-  const apiToken = await getApiToken(fetchFn);
-  const c = makeClient(apiToken, fetchFn);
+  const c = makeClient(fetchFn);
+  await c.init();
   const session = await c.post(null, 'authenticate', { username: username.includes('@') ? username.toLowerCase() : username, password, locale: 'fr' });
   if (!session.token) throw new AuthError(`Connexion refusée : ${session.error || 'identifiants incorrects ?'}`);
   const out = { sessionKeys: Object.keys(session).sort(), passwordPoliticsInvalidated: session.passwordPoliticsInvalidated, tokenLength: session.token.length, cookiesAfterLogin: c.cookieNames(), connectStatus: await c.connect(), cookiesAfterConnect: c.cookieNames(), steps: [] };
