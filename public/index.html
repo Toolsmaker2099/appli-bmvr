@@ -16,11 +16,12 @@
 <header><h1>Mes prêts</h1><button id="sync" aria-label="Actualiser">↻</button></header>
 <main>
   <section id="setup" hidden>
-    <h2>Configuration</h2>
-    <p class="hint">Adresse et code de votre relais personnel (voir le README).</p>
-    <input id="relay" placeholder="https://appli-bmvr-relais.xxx.workers.dev" autocomplete="off" inputmode="url">
-    <input id="token" type="password" placeholder="Code d'accès" autocomplete="off">
-    <button id="save">Enregistrer</button>
+    <h2>Connexion à la BMVR</h2>
+    <p class="hint">Vos identifiants restent sur cet appareil et ne sont envoyés au relais que pour lire vos prêts (rien n'y est conservé).</p>
+    <input id="user" placeholder="N° de carte ou identifiant" autocomplete="username">
+    <input id="pass" type="password" placeholder="Mot de passe" autocomplete="current-password">
+    <button id="save">Se connecter</button>
+    <p id="err" class="hint"></p>
   </section>
   <section id="loans" hidden>
     <p id="status" class="hint"></p>
@@ -34,7 +35,7 @@
     <a href="https://www.bmvr.marseille.fr/mars-actu-connexion-referer" target="_blank" rel="noopener">Marsactu</a>
     <a href="https://www.cafeyn.co/loginexternal/648" target="_blank" rel="noopener">Cafeyn</a>
   </section>
-  <section id="foot" hidden><button id="reset" class="link">Modifier la configuration</button></section>
+  <section id="foot" hidden><button id="reset" class="link">Se déconnecter (oublier mes identifiants)</button></section>
 </main>
 <script src="app.js" type="module"></script>
 </body>

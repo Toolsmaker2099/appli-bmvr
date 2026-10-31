@@ -1,37 +1,34 @@
 import { fetchLoans } from './portal.js';
 
-// Relais personnel : identifiants BMVR stockés comme secrets Cloudflare (BMVR_USER, BMVR_PASS), jamais dans le navigateur.
-// L'appli (GitHub Pages) s'authentifie avec APP_TOKEN. CORS limité à ALLOWED_ORIGIN.
+// Relais multi-utilisateurs sans état : l'appli envoie les identifiants BMVR de la personne à chaque requête (HTTPS),
+// le relais s'en sert pour interroger le portail puis les oublie. Rien n'est stocké ni journalisé.
+// Seule l'appli publiée sur ALLOWED_ORIGIN est autorisée à l'appeler depuis un navigateur.
 
-const json = (data, status, cors) => new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json', ...cors } });
-
-function equal(a = '', b = '') {
-  if (a.length !== b.length) return false;
-  let d = 0;
-  for (let i = 0; i < a.length; i++) d |= a.charCodeAt(i) ^ b.charCodeAt(i);
-  return d === 0;
-}
+const json = (data, status, cors) => new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', ...cors } });
 
 export default {
   async fetch(req, env) {
     const origin = req.headers.get('Origin');
-    const allowed = env.ALLOWED_ORIGIN;
-    const cors = origin && origin === allowed
-      ? { 'Access-Control-Allow-Origin': origin, 'Access-Control-Allow-Headers': 'Authorization, Content-Type', 'Access-Control-Allow-Methods': 'GET, OPTIONS', Vary: 'Origin' }
-      : {};
-    if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors });
+    const ok = origin && origin === env.ALLOWED_ORIGIN;
+    const cors = ok ? { 'Access-Control-Allow-Origin': origin, 'Access-Control-Allow-Headers': 'Content-Type', 'Access-Control-Allow-Methods': 'POST, OPTIONS', Vary: 'Origin' } : {};
+    if (req.method === 'OPTIONS') return new Response(null, { status: ok ? 204 : 403, headers: cors });
 
     const url = new URL(req.url);
-    if (url.pathname !== '/loans' && url.pathname !== '/debug') return json({ error: 'introuvable' }, 404, cors);
-    const token = (req.headers.get('Authorization') || '').replace(/^Bearer /, '');
-    if (!env.APP_TOKEN || !equal(token, env.APP_TOKEN)) return json({ error: 'non autorisé' }, 401, cors);
-    if (!env.BMVR_USER || !env.BMVR_PASS) return json({ error: 'identifiants BMVR non configurés' }, 500, cors);
+    if (req.method !== 'POST' || url.pathname !== '/loans') return json({ error: 'introuvable' }, 404, cors);
+    if (!ok) return json({ error: 'origine non autorisée' }, 403, cors);
+
+    let body;
+    try { body = await req.json(); } catch { return json({ error: 'requête invalide' }, 400, cors); }
+    const { username, password } = body || {};
+    if (typeof username !== 'string' || typeof password !== 'string' || !username || !password || username.length > 100 || password.length > 200) {
+      return json({ error: 'identifiant et mot de passe requis' }, 400, cors);
+    }
 
     try {
-      const r = await fetchLoans({ username: env.BMVR_USER, password: env.BMVR_PASS }, fetch, url.pathname === '/debug');
+      const r = await fetchLoans({ username, password }, fetch, body.debug === true);
       return json({ ...r, fetchedAt: new Date().toISOString() }, 200, cors);
     } catch (e) {
-      return json({ error: e.message }, 502, cors);
+      return json({ error: e.message }, e.message.startsWith('Connexion refusée') ? 401 : 502, cors);
     }
   },
 };

@@ -1,3 +1,5 @@
+// Adresse du relais Cloudflare (à adapter après le déploiement).
+const RELAY = 'https://appli-bmvr-relais.toolsmaker.workers.dev';
 const $ = (id) => document.getElementById(id);
 const store = {
   get: (k) => { try { return localStorage.getItem(k) || ''; } catch { return ''; } },
@@ -31,15 +33,16 @@ function render({ loans, fetchedAt }, note = '') {
 }
 
 async function refresh() {
-  const relay = store.get('relay'), token = store.get('token');
-  if (!relay || !token) { $('setup').hidden = false; $('loans').hidden = true; return; }
+  const user = store.get('user'), pass = store.get('pass');
+  if (!user || !pass) { $('setup').hidden = false; $('loans').hidden = true; $('foot').hidden = true; return; }
   $('setup').hidden = true;
   const cached = store.get('cache');
   if (cached) render(JSON.parse(cached), ' (copie enregistrée)');
   else { $('loans').hidden = false; $('status').textContent = 'Chargement…'; }
   try {
-    const r = await fetch(relay.replace(/\/$/, '') + '/loans', { headers: { Authorization: 'Bearer ' + token } });
+    const r = await fetch(RELAY + '/loans', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: user, password: pass }) });
     const data = await r.json();
+    if (r.status === 401) { signOut(); $('setup').hidden = false; $('err').textContent = 'Identifiants refusés par la BMVR.'; return; }
     if (!r.ok) throw new Error(data.error || 'HTTP ' + r.status);
     store.set('cache', JSON.stringify(data));
     render(data);
@@ -50,13 +53,17 @@ async function refresh() {
   }
 }
 
+function signOut() { ['user', 'pass', 'cache'].forEach(store.del); }
+
 $('save').onclick = () => {
-  store.set('relay', $('relay').value.trim());
-  store.set('token', $('token').value.trim());
+  store.set('user', $('user').value.trim());
+  store.set('pass', $('pass').value);
+  $('pass').value = '';
+  $('err').textContent = '';
   refresh();
 };
 $('sync').onclick = refresh;
-$('reset').onclick = () => { store.del('relay'); store.del('token'); store.del('cache'); refresh(); };
+$('reset').onclick = () => { signOut(); refresh(); };
 
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js');
 refresh();
