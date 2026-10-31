@@ -453,7 +453,19 @@ export async function searchCatalogue(creds, query, fetchFn = fetch, debug = fal
   const { c, token } = await login(creds, fetchFn);
   const res = failIfError(await c.post(token, 'search', { query: [q], queryid: 'NONE', sf: '*', includeFacets: false, pageNo: 1, pageSize: 20, locale: 'fr' }), 'Recherche');
   const results = parseSearch(res);
-  return debug ? { results, shape: shapeOf(res) } : { results, total: res.totalHits ?? res.total ?? results.length };
+  // Réservable ? Le portail n'autorise la réservation que d'un document dont aucun exemplaire n'est disponible : on lit les exemplaires de chaque résultat.
+  await Promise.all(results.slice(0, 20).map(async (r) => {
+    try {
+      const copies = parseCopies(failIfError(await c.get(token, 'notice', { id: r.id, locale: 'fr', aspect: 'Stock' }), 'Exemplaires'));
+      const out = copies.filter((x) => !x.available);
+      r.copiesTotal = copies.length;
+      r.copiesAvailable = copies.length - out.length;
+      r.nextReturn = out.map((x) => x.due).filter(Boolean).sort()[0] || '';
+      r.reservable = copies.length > 0 && r.copiesAvailable === 0;
+      if (copies.length) r.availability = r.copiesAvailable > 0 ? 'available' : 'unavailable';
+    } catch { r.reservable = null; }
+  }));
+  return debug ? { results, shape: shapeOf(res), firstKeys: Object.keys(res?.resultSet?.[0] ?? {}), metaKeys: Object.keys(res?.resultSet?.[0]?.meta ?? {}) } : { results, total: res.totalHits ?? res.total ?? results.length };
 }
 
 const ID_RE = /^[A-Za-z0-9_:.\-]{1,80}$/;

@@ -358,16 +358,21 @@ function searchCard(item) {
   li.append(head);
   const main = rows(item.fields);
   if (main) li.append(main);
-  if (item.availability) {
-    const ok = item.availability === 'available';
-    const chips = el('div', 'chips');
-    chips.append(el('span', 'chip ' + (ok ? 'good' : 'warn'), ok ? '✓ Document disponible dans un des établissements du réseau' : 'Aucun exemplaire disponible actuellement'));
-    li.append(chips);
-  }
+  const chips = el('div', 'chips');
+  const chip = (txt, cls) => chips.append(el('span', 'chip ' + cls, txt));
+  if (item.copiesTotal) {
+    if (item.copiesAvailable > 0) chip(`✓ ${item.copiesAvailable} exemplaire${item.copiesAvailable > 1 ? 's' : ''} disponible${item.copiesAvailable > 1 ? 's' : ''} sur ${item.copiesTotal}`, 'good');
+    else chip(`Tous les exemplaires sont sortis (${item.copiesTotal})${item.nextReturn ? ` · retour le plus proche : ${shortDate(item.nextReturn)}` : ''}`, 'warn');
+    chip(item.reservable ? '🔖 Réservable' : 'Non réservable : déjà disponible en bibliothèque', item.reservable ? 'good' : '');
+  } else if (item.copiesTotal === 0) chip('Aucun exemplaire en rayon : non réservable', 'warn');
+  else if (item.availability) chip(item.availability === 'available' ? '✓ Document disponible dans un des établissements du réseau' : 'Aucun exemplaire disponible actuellement', item.availability === 'available' ? 'good' : 'warn');
+  if (chips.children.length) li.append(chips);
   const row = el('div', 'btn-row');
-  const btn = el('button', 'primary small', 'Réserver');
-  btn.onclick = () => { btn.remove(); reserveSheet(item, li); };
-  row.append(btn); li.append(row);
+  if (item.reservable !== false) {
+    const btn = el('button', 'primary small', 'Réserver');
+    btn.onclick = () => { btn.remove(); reserveSheet(item, li); };
+    row.append(btn); li.append(row);
+  }
   return li;
 }
 
@@ -393,7 +398,7 @@ function renderAccount() {
   $('loginBox').hidden = on;
   $('accountBox').hidden = !on;
   $('who').textContent = store.get('user');
-  $('diag').hidden = !on;
+  $('diag').hidden = !on; $('diagSearch').hidden = !on;
 }
 
 $('save').onclick = () => {
@@ -405,6 +410,10 @@ $('save').onclick = () => {
 };
 $('reset').onclick = () => { signOut(); go(); };
 $('sync').onclick = () => (location.hash === '#resa' ? openReservations() : openLoans());
+$('diagSearch').onclick = async () => {
+  $('diagOut').hidden = false; $('diagOut').textContent = 'Diagnostic en cours…';
+  try { const d = await call('/search', { query: 'histoire de Marseille', debug: true }); $('diagOut').textContent = JSON.stringify({ firstKeys: d.firstKeys, metaKeys: d.metaKeys, shape: d.shape }, null, 1); } catch (e) { $('diagOut').textContent = 'Erreur : ' + e.message; }
+};
 $('diag').onclick = async () => {
   $('diagOut').hidden = false;
   $('diagOut').textContent = 'Diagnostic en cours…';
