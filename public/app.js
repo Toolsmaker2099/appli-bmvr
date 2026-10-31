@@ -581,10 +581,25 @@ function favSheet(item, li, row) {
 }
 
 function addFavButton(li, item) {
-  if (!item.coverId) return;
+  if (!item.coverId && !item.title) return;
   const row = el('div', 'btn-row');
   const fav = el('button', 'secondary small fav-btn', '♡ Favoris');
-  fav.onclick = () => { fav.remove(); favSheet({ id: item.coverId }, li); };
+  fav.onclick = async () => {
+    let id = item.coverId;
+    if (!id) {
+      // Pas d'identifiant du document (historique) : on le retrouve dans le catalogue d'après son titre et son auteur.
+      fav.disabled = true; fav.textContent = 'Recherche du document…';
+      try {
+        const norm = (x) => String(x || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
+        const { results } = await call('/search', { query: [item.title, item.author].filter(Boolean).join(' ').slice(0, 120) });
+        const want = norm(item.title);
+        const hit = results.find((r) => norm(r.title) === want) || results.find((r) => norm(r.title).startsWith(want.slice(0, 20))) || results[0];
+        id = hit?.id;
+      } catch { /* géré ci-dessous */ }
+      if (!id) { fav.disabled = false; fav.textContent = '♡ Favoris'; alert('Document introuvable dans le catalogue.'); return; }
+    }
+    fav.remove(); favSheet({ id }, li);
+  };
   row.append(fav); li.append(row);
 }
 
@@ -837,6 +852,7 @@ async function openEspace(kind) {
     const seen = espaceKind === 'messages' ? seenSet() : null;
     for (const it of items) {
       const li = espaceKind === 'messages' ? messageCard(it, !seen.has(it.id)) : plainCard(it);
+      if (espaceKind === 'loanhistory') addFavButton(li, it);
       if (seen && !seen.has(it.id) && espaceKind !== 'messages') { li.classList.add('unread'); const h = li.querySelector('h3'); if (h) h.before(el('span', 'chip good new-chip', 'Nouveau')); }
       ul.append(li);
     }
