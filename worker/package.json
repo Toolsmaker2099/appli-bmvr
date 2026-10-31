@@ -1,1 +1,1 @@
-{ "name": "appli-bmvr-relais", "private": true, "type": "module", "scripts": { "test": "node --test", "deploy": "wrangler deploy" }, "devDependencies": { "wrangler": "^4.0.0" } }
+{ "name": "appli-bmvr-relais", "private": true, "type": "module", "scripts": { "test": "node --test" } }

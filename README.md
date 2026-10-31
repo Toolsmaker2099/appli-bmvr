@@ -3,7 +3,7 @@
 PWA personnelle pour la BMVR de Marseille : liste des prêts avec échéances, et accès en un clic à Mediapart, Marsactu et Cafeyn.
 
 - `public/` : l'appli (statique, publiée sur GitHub Pages).
-- `worker/` : un petit relais Cloudflare Workers (gratuit) qui lit tes prêts sur le portail. Le portail n'autorise pas les appels directs depuis un autre site, d'où ce relais.
+- `wrangler.toml` + `worker/` : un petit relais Cloudflare Workers (gratuit) qui lit tes prêts sur le portail. Le portail n'autorise pas les appels directs depuis un autre site, d'où ce relais.
 
 Les identifiants BMVR sont des **secrets Cloudflare** : ils ne sont ni dans le code, ni dans le navigateur.
 
@@ -11,15 +11,14 @@ Les identifiants BMVR sont des **secrets Cloudflare** : ils ne sont ni dans le c
 
 ### 1. Le relais (Cloudflare)
 ```
-cd worker
-npm install
+npm install -g wrangler   # ou utiliser npx
 npx wrangler login
 npx wrangler secret put BMVR_USER     # numéro de carte / identifiant
 npx wrangler secret put BMVR_PASS     # mot de passe
 npx wrangler secret put APP_TOKEN     # un code long de ton choix (p. ex. 30 caractères aléatoires)
 npx wrangler deploy
 ```
-Note l'adresse affichée (`https://appli-bmvr-relais.<toi>.workers.dev`). Dans `worker/wrangler.toml`, `ALLOWED_ORIGIN` doit être l'adresse de ton site Pages (par défaut `https://toolsmaker2099.github.io`).
+Note l'adresse affichée (`https://appli-bmvr-relais.<toi>.workers.dev`). Dans `wrangler.toml` (à la racine), `ALLOWED_ORIGIN` doit être l'adresse de ton site Pages (par défaut `https://toolsmaker2099.github.io`).
 
 ### 2. L'appli (GitHub Pages)
 Dépôt → Settings → Pages → Source : **GitHub Actions**. Chaque envoi sur `main` publie `public/`. L'adresse sera `https://toolsmaker2099.github.io/appli-bmvr/`. (Un dépôt privé exige un abonnement GitHub payant pour Pages.)
