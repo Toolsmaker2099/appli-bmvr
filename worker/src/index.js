@@ -1,4 +1,4 @@
-import { fetchLoans, fetchServiceUrl, renewLoan, diagnose, AuthError } from './portal.js';
+import { fetchLoans, fetchServiceUrl, renewLoan, diagnose, fetchReservations, cancelReservation, searchCatalogue, reserveInfo, reserveRank, makeReservation, AuthError } from './portal.js';
 
 // Relais multi-utilisateurs sans état : l'appli envoie les identifiants BMVR de la personne à chaque requête (HTTPS),
 // le relais s'en sert pour interroger le portail puis les oublie. Rien n'est stocké ni journalisé.
@@ -14,7 +14,7 @@ export default {
     if (req.method === 'OPTIONS') return new Response(null, { status: ok ? 204 : 403, headers: cors });
 
     const url = new URL(req.url);
-    if (req.method !== 'POST' || !['/loans', '/service', '/renew'].includes(url.pathname)) return json({ error: 'introuvable' }, 404, cors);
+    if (req.method !== 'POST' || !['/loans', '/service', '/renew', '/reservations', '/cancel', '/search', '/reserve-info', '/reserve-rank', '/reserve'].includes(url.pathname)) return json({ error: 'introuvable' }, 404, cors);
     if (!ok) return json({ error: 'origine non autorisée' }, 403, cors);
 
     let body;
@@ -25,6 +25,13 @@ export default {
     }
 
     try {
+      const who = { username, password };
+      if (url.pathname === '/reservations') return json({ ...(await fetchReservations(who, fetch, body.debug === true)), fetchedAt: new Date().toISOString() }, 200, cors);
+      if (url.pathname === '/cancel') return json(await cancelReservation(who, body.reservationId), 200, cors);
+      if (url.pathname === '/search') return json(await searchCatalogue(who, body.query, fetch, body.debug === true), 200, cors);
+      if (url.pathname === '/reserve-info') return json(await reserveInfo(who, body.id, fetch, body.debug === true), 200, cors);
+      if (url.pathname === '/reserve-rank') return json(await reserveRank(who, body), 200, cors);
+      if (url.pathname === '/reserve') return json(await makeReservation(who, body), 200, cors);
       if (url.pathname === '/renew') return json(await renewLoan({ username, password }, body.documentId), 200, cors);
       if (url.pathname === '/service') {
         const trace = [];

@@ -37,8 +37,7 @@
 
     <h2>Site de la BMVR</h2>
     <div class="list-links">
-      <a href="https://www.bmvr.marseille.fr/" target="_blank" rel="noopener">🔎 Catalogue et recherche</a>
-      <a href="https://www.bmvr.marseille.fr/" target="_blank" rel="noopener">👤 Mon compte, réservations</a>
+      <a href="https://www.bmvr.marseille.fr/" target="_blank" rel="noopener">🌐 Ouvrir le site de la BMVR</a>
     </div>
   </section>
 
@@ -46,6 +45,22 @@
   <section id="view-prets" class="view" hidden>
     <p id="status" class="hint"></p>
     <ul id="list" class="cards"></ul>
+  </section>
+
+  <!-- RÉSERVATIONS -->
+  <section id="view-resa" class="view" hidden>
+    <p id="resaStatus" class="hint"></p>
+    <ul id="resaList" class="cards"></ul>
+  </section>
+
+  <!-- CHERCHER / RÉSERVER -->
+  <section id="view-chercher" class="view" hidden>
+    <form id="searchForm" class="searchbar">
+      <input id="q" type="search" placeholder="Titre, auteur, mot-clé…" enterkeyhint="search" autocomplete="off">
+      <button class="primary" type="submit">Chercher</button>
+    </form>
+    <p id="searchStatus" class="hint"></p>
+    <ul id="searchList" class="cards"></ul>
   </section>
 
   <!-- COMPTE -->
@@ -73,6 +88,8 @@
 <nav class="tabs" aria-label="Navigation">
   <a href="#accueil" data-tab="accueil"><span>🏠</span>Accueil</a>
   <a href="#prets" data-tab="prets"><span>📚</span>Mes prêts<b id="badge" hidden></b></a>
+  <a href="#resa" data-tab="resa"><span>🔖</span>Réservations</a>
+  <a href="#chercher" data-tab="chercher"><span>🔎</span>Chercher</a>
   <a href="#compte" data-tab="compte"><span>👤</span>Compte</a>
 </nav>
 <script src="app.js?v=__VERSION__" type="module"></script>

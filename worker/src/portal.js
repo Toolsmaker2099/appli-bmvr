@@ -54,7 +54,7 @@ function makeClient(fetchFn) {
       });
       keep(res);
       if (res.status === 401 && path === 'authenticate') throw new AuthError('Connexion refusée : identifiant ou mot de passe incorrect');
-      if (!res.ok) throw new Error(`Portail: ${path} → HTTP ${res.status}`);
+      if (!res.ok) throw new Error(`Portail: ${path} → HTTP ${res.status} ${(await res.text()).replace(/\s+/g, ' ').slice(0, 160)}`);
       return res.json();
     },
     // Suit les redirections d'un service en ligne (CAS) avec la session de la personne, et s'arrête juste avant d'ouvrir
@@ -307,4 +307,134 @@ export async function renewLoan({ username, password }, documentId, fetchFn = fe
     warnings: Array.isArray(r.warnings) ? r.warnings : [],
     message: r.errorReponse ? String(r.error || '') : f,
   };
+}
+
+
+// ---------- Réservations, recherche ----------
+// Connexion commune : session + jeton, prêts à interroger le portail.
+async function login({ username, password }, fetchFn) {
+  const c = makeClient(fetchFn);
+  await c.init();
+  const session = await c.post(null, 'authenticate', { username: username.includes('@') ? username.toLowerCase() : username, password, locale: 'fr' });
+  if (!session.token) throw new AuthError(`Connexion refusée : ${session.error || 'identifiants incorrects ?'}`);
+  await c.connect();
+  return { c, token: session.token };
+}
+
+const failIfError = (r, what) => {
+  if (r?.errorReponse) throw new Error(`${what} : ${readable(String(r.error || '')) || r.code || 'refusé par la bibliothèque'}`);
+  return r;
+};
+const first = (v) => (Array.isArray(v) ? (v[0]?.value ?? v[0]) : v?.value ?? v);
+
+// Réservations en cours : une carte par réservation.
+export function parseReservations(list) {
+  const items = Array.isArray(list) ? list : list?.items ?? [];
+  const text = (v) => (v == null ? '' : String(v).trim());
+  return items.map((raw, i) => {
+    const it = raw?.data ?? raw;
+    const f = it.dateFormat;
+    const seq = text(it.seqNo);
+    const status = it.statusDescription;
+    return {
+      id: text(it.reservationId) || seq || String(i),
+      reservationId: text(it.reservationId),
+      title: cleanTitle(it.title) || 'Document',
+      author: cleanAuthor(it.author),
+      volume: text(it.volume),
+      issueCaption: text(it.issueCaption),
+      branch: text(it.branch?.desc ?? it.pickupBranchDesc),
+      reservedOn: toISODate(it.resvDate, f),
+      activationDate: toISODate(it.activationDate, f),
+      expiryDate: toISODate(it.expiryDate, f),
+      pickupDeadline: toISODate(it.dateHoldForPickup, f),
+      rank: it.rank != null && it.rank !== '' ? Number(it.rank) || 0 : null,
+      status: readable(text(typeof status === 'object' ? status?.desc : status)),
+      statusCode: text(it.statusCode),
+      available: /AVAILABLE/i.test(text(it.statusCode)),
+      canCancel: it.canCancel !== false && !it.canceled && !!text(it.reservationId),
+      coverId: /^\d{1,10}$/.test(seq) ? `p::usmarcdef_${seq.padStart(10, '0')}` : '',
+    };
+  });
+}
+
+export async function fetchReservations(creds, fetchFn = fetch, debug = false) {
+  const { c, token } = await login(creds, fetchFn);
+  let res, lastErr;
+  for (const [path, params] of [['reservations', { locale: 'fr' }], ['accountPage', { type: 'reservations', pageNo: 1, pageSize: 100, locale: 'fr' }], ['reservations', {}]]) {
+    try { res = failIfError(await c.get(token, path, params), 'Réservations'); break; } catch (e) { lastErr = e; }
+  }
+  if (!res) throw lastErr;
+  const reservations = parseReservations(res);
+  return debug ? { reservations, shape: shapeOf(res) } : { reservations };
+}
+
+// Annulation d'une réservation (même appel que le bouton « Annuler » du portail).
+export async function cancelReservation(creds, reservationId, fetchFn = fetch) {
+  if (!/^[A-Za-z0-9_-]{1,40}$/.test(reservationId ?? '')) throw new Error('Réservation invalide');
+  const { c, token } = await login(creds, fetchFn);
+  const r = await c.get(token, 'cancelReservation', { ilsType: 'Syracuse', reservationId });
+  failIfError(r, 'Annulation');
+  return { canceled: true };
+}
+
+// Recherche dans le catalogue.
+export function parseSearch(res) {
+  const rows = res?.resultSet ?? [];
+  return rows.map((e) => {
+    const id = String(first(e.id) ?? '');
+    const num = id.match(/usmarcdef_(\d+)/)?.[1];
+    return {
+      id,
+      title: cleanTitle(first(e.title)) || 'Document',
+      author: cleanAuthor(first(e.author)),
+      year: String(first(e.date) ?? first(e.year) ?? '').slice(0, 4),
+      type: String(first(e.typeOfDocumentFacet) ?? first(e.contentType) ?? first(e.format) ?? ''),
+      coverId: num ? id : '',
+      isbn: String(first(e.isbn) ?? '').replace(/[^0-9Xx]/g, ''),
+    };
+  }).filter((r) => r.id);
+}
+
+export async function searchCatalogue(creds, query, fetchFn = fetch, debug = false) {
+  const q = String(query ?? '').trim().slice(0, 200);
+  if (!q) throw new Error('Saisis un titre, un auteur ou un mot-clé');
+  const { c, token } = await login(creds, fetchFn);
+  const res = failIfError(await c.post(token, 'search', { query: [q], queryid: 'NONE', sf: '*', includeFacets: false, pageNo: 1, pageSize: 20, locale: 'fr' }), 'Recherche');
+  const results = parseSearch(res);
+  return debug ? { results, shape: shapeOf(res) } : { results, total: res.totalHits ?? res.total ?? results.length };
+}
+
+const ID_RE = /^[A-Za-z0-9_:.\-]{1,80}$/;
+const check = (id) => { if (!ID_RE.test(id ?? '')) throw new Error('Document invalide'); };
+
+// Étape 1 d'une réservation : volumes éventuels, bibliothèques de retrait possibles, avertissements.
+export async function reserveInfo(creds, id, fetchFn = fetch, debug = false) {
+  check(id);
+  const { c, token } = await login(creds, fetchFn);
+  const vols = await c.post(token, 'reservationVolumes', { id, locale: 'fr' }).catch((e) => ({ errorReponse: true, error: e.message }));
+  const choices = failIfError(await c.post(token, 'reservationChoices', { id, locale: 'fr' }), 'Réservation');
+  const volumes = Array.isArray(vols) ? vols.map((v) => String(v.volume ?? '')).filter(Boolean) : [];
+  const branches = (choices.branchList ?? []).map((b) => ({ code: String(b.branchCode ?? ''), name: String(b.branchDesc_fre || b.branchDesc || b.branchCode || '').replace(new RegExp(`^${b.branchCode ?? ''}\\s*-\\s*`), '') }));
+  const traps = (choices.trapList ?? []).map((t) => readable(String(t.trapMessage ?? ''))).filter(Boolean);
+  const out = { volumes, branches, traps, blocked: choices.userTrapLevel === 'Error' && traps.length > 0 };
+  return debug ? { ...out, shape: { volumes: shapeOf(vols), choices: shapeOf(choices) } } : out;
+}
+
+// Rang dans la file d'attente pour un choix donné.
+export async function reserveRank(creds, { id, volume, branch }, fetchFn = fetch) {
+  check(id);
+  const { c, token } = await login(creds, fetchFn);
+  const r = await c.post(token, 'reservationRankWithStatus', { id, volume: volume || null, branch });
+  return { ok: r.status !== false, rank: r.rank ?? null };
+}
+
+// Réservation effective.
+export async function makeReservation(creds, { id, volume, branch }, fetchFn = fetch) {
+  check(id);
+  if (!/^[A-Za-z0-9_-]{1,20}$/.test(branch ?? '')) throw new Error('Bibliothèque de retrait invalide');
+  const { c, token } = await login(creds, fetchFn);
+  const r = await c.post(token, 'makeReservation', { id, volume: volume || null, branch, locale: 'fr' });
+  failIfError(r, 'Réservation');
+  return { done: r.inSuccess === true };
 }

@@ -69,3 +69,12 @@ pre{white-space:pre-wrap;word-break:break-word;background:var(--card);border:1px
 .actions .renew{width:auto;padding:8px 16px;font-size:.88rem;border-radius:999px;margin-top:0}
 .actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px}
 .actions .renew-msg{margin:0;flex:1 1 100%}
+
+.tabs a{font-size:.68rem}
+.searchbar{display:flex;gap:8px;align-items:stretch}.searchbar input{margin-top:0;flex:1}.searchbar .primary{width:auto;margin-top:0;padding:0 18px}
+.card .btn-row{padding:0 14px 14px;display:flex;flex-wrap:wrap;gap:8px}
+.card .small{width:auto;margin-top:0;padding:8px 16px;font-size:.88rem;border-radius:999px;border:0;font-weight:600}
+.card .small.danger{background:var(--chip);color:var(--late)}
+.sheet{padding:0 14px 14px}.sheet label{display:block;margin-top:10px;font-size:.9rem}
+.sheet select{display:block;width:100%;margin-top:4px;padding:11px;border-radius:12px;border:1px solid var(--line);background:var(--card);color:var(--fg);font:inherit}
+.sheet .msg{margin:10px 0 0}

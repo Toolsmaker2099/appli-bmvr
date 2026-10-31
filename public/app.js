@@ -20,17 +20,19 @@ const shortDate = (iso) => parse(iso).toLocaleDateString('fr-FR', { day: 'numeri
 const rel = (d) => (d < 0 ? `En retard de ${-d} jour${d < -1 ? 's' : ''}` : d === 0 ? "À rendre aujourd'hui" : d === 1 ? 'À rendre demain' : `À rendre dans ${d} jours`);
 
 // ---------- navigation par onglets ----------
-const TITLES = { accueil: 'Accueil', prets: 'Mes prêts', compte: 'Compte' };
+const TITLES = { accueil: 'Accueil', prets: 'Mes prêts', resa: 'Mes réservations', chercher: 'Chercher et réserver', compte: 'Compte' };
 function go() {
   const tab = TITLES[location.hash.slice(1)] ? location.hash.slice(1) : 'accueil';
   for (const t of Object.keys(TITLES)) $('view-' + t).hidden = t !== tab;
   document.querySelectorAll('.tabs a').forEach((a) => a.classList.toggle('on', a.dataset.tab === tab));
   $('title').textContent = TITLES[tab];
-  $('sync').hidden = tab !== 'prets' || !hasCreds();
+  $('sync').hidden = !['prets', 'resa'].includes(tab) || !hasCreds();
   window.scrollTo(0, 0);
   if (tab === 'accueil') renderSummary();
   if (tab === 'compte') renderAccount();
   if (tab === 'prets') openLoans(); // les prêts ne sont lus que lorsqu'on ouvre leur onglet
+  if (tab === 'resa') openReservations();
+  if (tab === 'chercher') openSearch();
 }
 addEventListener('hashchange', go);
 
@@ -213,8 +215,165 @@ async function openLoans() {
   } finally { loading = false; $('sync').classList.remove('spin'); }
 }
 
+
+// ---------- appels au relais ----------
+async function call(path, extra = {}) {
+  const r = await fetch(RELAY + path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: store.get('user'), password: store.get('pass'), ...extra }) });
+  const data = await r.json().catch(() => ({}));
+  if (r.status === 401) { signOut(); location.hash = '#compte'; $('err').textContent = data.error || 'Identifiants refusés par la BMVR.'; throw new Error(data.error || 'Identifiants refusés'); }
+  if (!r.ok) throw new Error(data.error || 'HTTP ' + r.status);
+  return data;
+}
+const needLogin = (box, status) => {
+  box.replaceChildren(); status.textContent = '';
+  const a = el('a', '', 'Connectez-vous dans l’onglet Compte.'); a.href = '#compte'; status.append(a);
+};
+const readResaCache = () => { try { return JSON.parse(store.get('resaCache') || 'null'); } catch { return null; } };
+
+// ---------- mes réservations ----------
+function resaCard(r) {
+  const li = el('li', 'card ' + (r.available ? 'soon' : ''));
+  const head = el('div', 'card-head');
+  const t = el('div', 'card-title');
+  t.append(el('h3', '', [r.title, r.volume && `(${r.volume})`, r.issueCaption].filter(Boolean).join(' ')));
+  if (r.author) t.append(el('p', '', r.author));
+  t.append(el('span', 'due', r.available ? '✓ Disponible : à retirer' : r.rank ? `Vous êtes n° ${r.rank} dans la file` : r.status || 'En attente'));
+  head.append(cover(r), t);
+  li.append(head);
+  const main = rows([
+    ['État', r.status],
+    ['Retrait', r.branch],
+    ['Réservé le', r.reservedOn && longDate(r.reservedOn)],
+    ['À retirer avant le', r.pickupDeadline && longDate(r.pickupDeadline)],
+    ['Réservation valable jusqu’au', r.expiryDate && longDate(r.expiryDate)],
+    ['Rang dans la file', r.rank ? String(r.rank) : ''],
+  ]);
+  if (main) li.append(main);
+  if (r.canCancel) {
+    const row = el('div', 'btn-row');
+    const btn = el('button', 'secondary small danger', 'Annuler la réservation');
+    const msg = el('p', 'hint msg');
+    btn.onclick = async () => {
+      if (!confirm(`Annuler la réservation de « ${r.title} » ?\nCette action modifie votre compte à la bibliothèque.`)) return;
+      btn.disabled = true; btn.textContent = 'Annulation…'; msg.textContent = '';
+      try {
+        await call('/cancel', { reservationId: r.reservationId });
+        li.replaceChildren(el('p', 'hint ok', `✓ Réservation de « ${r.title} » annulée.`));
+        store.del('resaCache');
+      } catch (e) { msg.textContent = e.message; msg.className = 'hint msg err'; btn.disabled = false; btn.textContent = 'Annuler la réservation'; }
+    };
+    row.append(btn); li.append(row, msg);
+  }
+  return li;
+}
+
+function renderResa(data, note = '') {
+  const list = $('resaList');
+  list.replaceChildren();
+  if (!data.reservations.length) { const li = el('li', 'hero'); li.append(el('strong', '', 'Aucune réservation'), el('p', '', 'Cherchez un document dans l’onglet Chercher pour le réserver.')); list.append(li); }
+  for (const r of data.reservations) list.append(resaCard(r));
+  $('resaStatus').textContent = `${data.reservations.length} réservation${data.reservations.length > 1 ? 's' : ''}${note}`;
+}
+
+let loadingResa = false;
+async function openReservations() {
+  if (!hasCreds()) return needLogin($('resaList'), $('resaStatus'));
+  const cached = readResaCache();
+  if (cached) renderResa(cached, ' (copie enregistrée)'); else { $('resaList').replaceChildren(); $('resaStatus').textContent = 'Chargement de vos réservations…'; }
+  if (loadingResa) return;
+  loadingResa = true; $('sync').classList.add('spin');
+  try {
+    const data = await call('/reservations');
+    store.set('resaCache', JSON.stringify(data));
+    renderResa(data);
+  } catch (e) { $('resaStatus').textContent = (cached ? $('resaStatus').textContent + ' · ' : '') + 'Actualisation impossible : ' + e.message; }
+  finally { loadingResa = false; $('sync').classList.remove('spin'); }
+}
+
+// ---------- recherche et réservation ----------
+function openSearch() { if (!hasCreds()) needLogin($('searchList'), $('searchStatus')); }
+
+function reserveSheet(item, li) {
+  const sheet = el('div', 'sheet');
+  const msg = el('p', 'hint msg', 'Chargement des options de retrait…');
+  sheet.append(msg);
+  li.append(sheet);
+  call('/reserve-info', { id: item.id }).then((info) => {
+    sheet.replaceChildren();
+    if (info.blocked || !info.branches.length) {
+      sheet.append(el('p', 'hint err', info.traps[0] || "La bibliothèque n'autorise pas la réservation de ce document pour le moment."));
+      return;
+    }
+    let volSel = null;
+    if (info.volumes.length > 1) {
+      const l = el('label', '', 'Volume'); volSel = el('select');
+      info.volumes.forEach((v) => volSel.append(new Option(v, v)));
+      l.append(volSel); sheet.append(l);
+    }
+    const bl = el('label', '', 'Lieu de retrait'); const brSel = el('select');
+    const pref = store.get('pickup');
+    info.branches.forEach((b) => brSel.append(new Option(b.name || b.code, b.code, false, b.code === pref)));
+    bl.append(brSel); sheet.append(bl);
+    const rank = el('p', 'hint msg');
+    const refresh = async () => {
+      rank.textContent = '';
+      try {
+        const r = await call('/reserve-rank', { id: item.id, volume: volSel?.value, branch: brSel.value });
+        rank.textContent = r.ok ? (r.rank ? `Vous seriez n° ${r.rank} dans la file d’attente.` : 'Disponible ou sans file d’attente.') : "Ce choix n'est pas réservable.";
+      } catch {}
+    };
+    brSel.onchange = refresh; if (volSel) volSel.onchange = refresh; refresh();
+    const ok = el('button', 'primary small', 'Confirmer la réservation');
+    ok.style.marginTop = '12px';
+    const out = el('p', 'hint msg');
+    ok.onclick = async () => {
+      const name = brSel.selectedOptions[0].textContent;
+      if (!confirm(`Réserver « ${item.title} » pour un retrait à ${name} ?\nCette action modifie votre compte à la bibliothèque.`)) return;
+      ok.disabled = true; ok.textContent = 'Réservation…'; out.textContent = '';
+      try {
+        const r = await call('/reserve', { id: item.id, volume: volSel?.value, branch: brSel.value });
+        if (!r.done) throw new Error('La bibliothèque a refusé la réservation.');
+        store.set('pickup', brSel.value); store.del('resaCache');
+        sheet.replaceChildren(el('p', 'hint ok', `✓ Réservé. Retrait à ${name}. Retrouvez-la dans l’onglet Réservations.`));
+      } catch (e) { out.textContent = e.message; out.className = 'hint msg err'; ok.disabled = false; ok.textContent = 'Confirmer la réservation'; }
+    };
+    sheet.append(rank, ok, out);
+  }).catch((e) => { msg.textContent = e.message; msg.className = 'hint msg err'; });
+}
+
+function searchCard(item) {
+  const li = el('li', 'card');
+  const head = el('div', 'card-head');
+  const t = el('div', 'card-title');
+  t.append(el('h3', '', item.title));
+  if (item.author) t.append(el('p', '', item.author));
+  const meta = [item.type, item.year].filter(Boolean).join(' · ');
+  if (meta) t.append(el('span', 'due', meta));
+  head.append(cover(item), t);
+  li.append(head);
+  const row = el('div', 'btn-row');
+  const btn = el('button', 'primary small', 'Réserver');
+  btn.onclick = () => { btn.remove(); reserveSheet(item, li); };
+  row.append(btn); li.append(row);
+  return li;
+}
+
+$('searchForm').onsubmit = async (ev) => {
+  ev.preventDefault();
+  if (!hasCreds()) return needLogin($('searchList'), $('searchStatus'));
+  const q = $('q').value.trim();
+  if (!q) return;
+  $('q').blur();
+  $('searchStatus').textContent = 'Recherche…'; $('searchList').replaceChildren();
+  try {
+    const data = await call('/search', { query: q });
+    $('searchStatus').textContent = data.results.length ? `${data.results.length} résultat${data.results.length > 1 ? 's' : ''}` : 'Aucun résultat.';
+    for (const it of data.results) $('searchList').append(searchCard(it));
+  } catch (e) { $('searchStatus').textContent = 'Recherche impossible : ' + e.message; }
+};
+
 // ---------- compte ----------
-function signOut() { ['user', 'pass', 'cache', 'lastTrace'].forEach(store.del); updateBadge(); }
+function signOut() { ['user', 'pass', 'cache', 'resaCache', 'lastTrace'].forEach(store.del); updateBadge(); }
 
 function renderAccount() {
   const on = hasCreds();
@@ -232,7 +391,7 @@ $('save').onclick = () => {
   location.hash = '#prets';
 };
 $('reset').onclick = () => { signOut(); go(); };
-$('sync').onclick = openLoans;
+$('sync').onclick = () => (location.hash === '#resa' ? openReservations() : openLoans());
 $('diag').onclick = async () => {
   $('diagOut').hidden = false;
   $('diagOut').textContent = 'Diagnostic en cours…';

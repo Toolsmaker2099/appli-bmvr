@@ -98,3 +98,16 @@ test('prolongation : appel renewLoan avec le numéro de document', async () => {
   assert.ok(calls.some((u) => u.includes('renewLoan?documentId=DX2029')));
   await assert.rejects(() => renewLoan({ username: 'u', password: 'p' }, '../x', fake));
 });
+
+test('parseReservations et parseSearch', async () => {
+  const { parseReservations, parseSearch } = await import('./src/portal.js');
+  const r = parseReservations([{ data: { reservationId: 'R12', seqNo: '123', title: 'Dune [Texte imprimé] / Herbert', author: 'Herbert, Frank 1920-1986', rank: '2', canCancel: true, resvDate: '30/10/2026', dateFormat: 'dd/MM/yyyy', branch: { branchCode: 'ALC', desc: 'Alcazar' }, statusCode: 'ReservationCard.RESV_WAITING' } }]);
+  assert.equal(r[0].title, 'Dune');
+  assert.equal(r[0].reservedOn, '2026-10-30');
+  assert.equal(r[0].rank, 2);
+  assert.equal(r[0].branch, 'Alcazar');
+  assert.ok(r[0].canCancel && !r[0].available);
+  const s = parseSearch({ resultSet: [{ id: [{ value: 'p::usmarcdef_0000000123' }], title: [{ value: 'Dune' }], author: [{ value: 'Herbert, Frank' }] }] });
+  assert.equal(s[0].author, 'Frank Herbert');
+  assert.equal(s[0].coverId, 'p::usmarcdef_0000000123');
+});
