@@ -66,19 +66,14 @@
 
   <!-- MON ESPACE -->
   <section id="view-espace" class="view" hidden>
-    <div class="seg" id="seg">
-      <button data-k="favoris">♡ Favoris</button>
-      <button data-k="loanhistory">Historique</button>
-      <button data-k="messages">Messages</button>
-      <button data-k="fines">Amendes</button>
-      <button data-k="profile">Profil</button>
-    </div>
+    <a id="back" class="back" href="#espace" hidden>‹ Mon espace</a>
     <p id="espaceStatus" class="hint"></p>
     <div id="espaceBody"></div>
   </section>
 
   <!-- COMPTE -->
   <section id="view-compte" class="view" hidden>
+    <a class="back" href="#espace">‹ Mon espace</a>
     <div id="loginBox">
       <h2>Connexion à la BMVR</h2>
       <p class="hint">Vos identifiants restent sur cet appareil. Ils ne sont envoyés au relais que le temps de lire vos prêts ou de vous connecter à un service, et n'y sont pas conservés.</p>
@@ -105,8 +100,7 @@
   <a href="#prets" data-tab="prets"><span>📚</span>Mes prêts<b id="badge" hidden></b></a>
   <a href="#resa" data-tab="resa"><span>🔖</span>Réservations</a>
   <a href="#chercher" data-tab="chercher"><span>🔎</span>Chercher</a>
-  <a href="#espace" data-tab="espace"><span>⭐</span>Mon espace</a>
-  <a href="#compte" data-tab="compte"><span>👤</span>Compte</a>
+  <a href="#espace" data-tab="espace"><span>👤</span>Mon espace</a>
 </nav>
 <script src="app.js?v=__VERSION__" type="module"></script>
 </body>

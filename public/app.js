@@ -20,12 +20,13 @@ const shortDate = (iso) => parse(iso).toLocaleDateString('fr-FR', { day: 'numeri
 const rel = (d) => (d < 0 ? `En retard de ${-d} jour${d < -1 ? 's' : ''}` : d === 0 ? "À rendre aujourd'hui" : d === 1 ? 'À rendre demain' : `À rendre dans ${d} jours`);
 
 // ---------- navigation par onglets ----------
-const TITLES = { accueil: 'Accueil', prets: 'Mes prêts', resa: 'Mes réservations', chercher: 'Chercher et réserver', espace: 'Mon espace', compte: 'Compte' };
+const TITLES = { accueil: 'Accueil', prets: 'Mes prêts', resa: 'Mes réservations', chercher: 'Chercher et réserver', espace: 'Mon espace', compte: 'Compte et connexion' };
 function go() {
-  const tab = TITLES[location.hash.slice(1)] ? location.hash.slice(1) : 'accueil';
+  const [h1, sub] = location.hash.slice(1).split('/');
+  const tab = TITLES[h1] ? h1 : 'accueil';
   for (const t of Object.keys(TITLES)) $('view-' + t).hidden = t !== tab;
-  document.querySelectorAll('.tabs a').forEach((a) => a.classList.toggle('on', a.dataset.tab === tab));
-  $('title').textContent = TITLES[tab];
+  document.querySelectorAll('.tabs a').forEach((a) => a.classList.toggle('on', a.dataset.tab === (tab === 'compte' ? 'espace' : tab)));
+  $('title').textContent = tab === 'espace' && ESPACE[sub] ? ESPACE[sub] : TITLES[tab];
   $('sync').hidden = !['prets', 'resa'].includes(tab) || !hasCreds();
   window.scrollTo(0, 0);
   if (tab === 'accueil') renderSummary();
@@ -33,7 +34,7 @@ function go() {
   if (tab === 'prets') openLoans(); // les prêts ne sont lus que lorsqu'on ouvre leur onglet
   if (tab === 'resa') openReservations();
   if (tab === 'chercher') openSearch();
-  if (tab === 'espace') openEspace();
+  if (tab === 'espace') openEspace(ESPACE[sub] ? sub : '');
 }
 addEventListener('hashchange', go);
 
@@ -440,7 +441,14 @@ function addFavButton(li, item) {
 }
 
 // ---------- mon espace ----------
-const ESPACE = { favoris: 'Favoris', loanhistory: 'Historique des prêts', messages: 'Messages de la bibliothèque', fines: 'Amendes', profile: 'Mon profil' };
+const ESPACE = { profile: 'Mon profil', favoris: 'Mes favoris', loanhistory: 'Historique des prêts', messages: 'Messages', fines: 'Amendes' };
+const MENU = [
+  ['profile', '👤', 'Mon profil', 'Coordonnées et abonnement'],
+  ['favoris', '♡', 'Mes favoris', 'Vos listes de documents'],
+  ['loanhistory', '🕘', 'Historique des prêts', 'Tout ce que vous avez emprunté'],
+  ['messages', '✉️', 'Messages', 'Avis de la bibliothèque'],
+  ['fines', '💶', 'Amendes', 'Montants éventuels à régler'],
+];
 let espaceKind = store.get('espaceKind') || 'favoris';
 
 function plainCard(it) {
@@ -512,9 +520,23 @@ async function showBasket(body, status, b) {
   } catch (e) { body.append(back); status.textContent = 'Impossible de charger la liste : ' + e.message; }
 }
 
-async function openEspace() {
+function espaceMenu(body, status) {
+  body.replaceChildren(); status.textContent = '';
+  const who = el('div', 'menu-who');
+  who.append(el('span', 'avatar', (store.get('user') || '?').slice(0, 2).toUpperCase()), el('span', '', hasCreds() ? `Connecté · ${store.get('user')}` : 'Non connecté'));
+  body.append(who);
+  const ul = el('ul', 'menu');
+  const item = (href, ico, title, sub) => { const li = el('li'); const a = el('a'); a.href = href; a.append(el('span', 'm-ico', ico)); const t = el('span', 'm-txt'); t.append(el('strong', '', title), el('small', '', sub)); a.append(t, el('span', 'm-go', '›')); li.append(a); ul.append(li); };
+  if (hasCreds()) for (const [k, ico, title, sub] of MENU) item('#espace/' + k, ico, title, sub);
+  item('#compte', '🔐', 'Compte et connexion', hasCreds() ? 'Se déconnecter, à propos, diagnostic' : 'Se connecter à votre compte BMVR');
+  body.append(ul);
+}
+
+async function openEspace(kind) {
   const body = $('espaceBody'), status = $('espaceStatus');
-  document.querySelectorAll('#seg button').forEach((b) => b.classList.toggle('on', b.dataset.k === espaceKind));
+  $('back').hidden = !kind;
+  if (!kind) return espaceMenu(body, status);
+  espaceKind = kind;
   body.replaceChildren(); status.textContent = '';
   if (!hasCreds()) return needLogin(body, status);
   if (espaceKind === 'favoris') return showBaskets(body, status);
@@ -550,7 +572,6 @@ async function openEspace() {
     }
   } catch (e) { status.textContent = 'Impossible de charger : ' + e.message; }
 }
-document.querySelectorAll('#seg button').forEach((b) => { b.onclick = () => { espaceKind = b.dataset.k; store.set('espaceKind', espaceKind); openEspace(); }; });
 
 // ---------- compte ----------
 function signOut() { ['user', 'pass', 'cache', 'resaCache', 'lastTrace'].forEach(store.del); updateBadge(); }
