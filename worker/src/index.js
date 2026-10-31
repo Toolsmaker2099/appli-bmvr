@@ -27,7 +27,7 @@ export default {
     try {
       const who = { username, password };
       if (url.pathname === '/reservations') return json({ ...(await fetchReservations(who, fetch, body.debug === true)), fetchedAt: new Date().toISOString() }, 200, cors);
-      if (url.pathname === '/cancel') return json(await cancelReservation(who, body.reservationId), 200, cors);
+      if (url.pathname === '/cancel') return json(await cancelReservation(who, body), 200, cors);
       if (url.pathname === '/search') return json(await searchCatalogue(who, body.query, fetch, body.debug === true), 200, cors);
       if (url.pathname === '/reserve-info') return json(await reserveInfo(who, body.id, fetch, body.debug === true), 200, cors);
       if (url.pathname === '/reserve-rank') return json(await reserveRank(who, body), 200, cors);

@@ -302,7 +302,7 @@ function resaCard(r) {
       if (!confirm(`Annuler la réservation de « ${r.title} » ?\nCette action modifie votre compte à la bibliothèque.`)) return;
       btn.disabled = true; btn.textContent = 'Annulation…'; msg.textContent = '';
       try {
-        await call('/cancel', { reservationId: r.reservationId });
+        await call('/cancel', { reservationId: r.reservationId, ilsType: r.ilsType, seqNo: r.seqNo, volume: r.volume, omnidexId: r.omnidexId, pickupBranch: r.pickupBranch });
         li.replaceChildren(el('p', 'hint ok', `✓ Réservation de « ${r.title} » annulée.`));
         store.del('resaCache');
       } catch (e) { msg.textContent = e.message; msg.className = 'hint msg err'; btn.disabled = false; btn.textContent = 'Annuler la réservation'; }
@@ -410,9 +410,9 @@ function searchCard(item) {
   const chip = (txt, cls) => chips.append(el('span', 'chip ' + cls, txt));
   if (item.copiesTotal) {
     if (item.copiesAvailable > 0) chip(`✓ ${item.copiesAvailable} exemplaire${item.copiesAvailable > 1 ? 's' : ''} disponible${item.copiesAvailable > 1 ? 's' : ''} sur ${item.copiesTotal}`, 'good');
-    else chip(`Tous les exemplaires sont sortis (${item.copiesTotal})${item.nextReturn ? ` · retour le plus proche : ${shortDate(item.nextReturn)}` : ''}`, 'warn');
-    chip(item.reservable ? '🔖 Réservable' : 'Non réservable : déjà disponible en bibliothèque', item.reservable ? 'good' : '');
-  } else if (item.copiesTotal === 0) chip('Aucun exemplaire en rayon : non réservable', 'warn');
+    else chip(`Aucun exemplaire disponible actuellement (${item.copiesTotal})${item.nextReturn ? ` · retour le plus proche : ${shortDate(item.nextReturn)}` : ''}`, 'warn');
+    chip(item.reservable ? '🔖 Réservable' : 'Non réservable', item.reservable ? 'good' : '');
+  } else if (item.copiesTotal === 0) chip('Aucun exemplaire en rayon', 'warn');
   else if (item.availability) chip(item.availability === 'available' ? '✓ Document disponible dans un des établissements du réseau' : 'Aucun exemplaire disponible actuellement', item.availability === 'available' ? 'good' : 'warn');
   if (chips.children.length) li.append(chips);
   const det = el('details', 'notice');

@@ -338,7 +338,7 @@ export function parseReservations(list) {
     const seq = text(it.seqNo);
     const status = it.statusDescription;
     return {
-      id: text(it.reservationId) || seq || String(i),
+      id: text(it.reservationId) || `${seq}-${i}`,
       reservationId: text(it.reservationId),
       title: cleanTitle(it.title) || 'Document',
       author: cleanAuthor(it.author),
@@ -353,7 +353,11 @@ export function parseReservations(list) {
       status: readable(text(typeof status === 'object' ? status?.desc : status)),
       statusCode: text(it.statusCode),
       available: /AVAILABLE/i.test(text(it.statusCode)),
-      canCancel: it.canCancel !== false && !it.canceled && !!text(it.reservationId),
+      ilsType: text(it.ilsType ?? raw?.ilsType),
+      seqNo: seq,
+      omnidexId: text(it.omnidexId),
+      pickupBranch: text(it.branch?.branchCode ?? it.pickupBranch),
+      canCancel: it.canCancel !== false && !it.canceled && (!!text(it.reservationId) || !!seq),
       coverId: /^\d{1,10}$/.test(seq) ? `p::usmarcdef_${seq.padStart(10, '0')}` : '',
     };
   });
@@ -370,11 +374,17 @@ export async function fetchReservations(creds, fetchFn = fetch, debug = false) {
   return debug ? { reservations, shape: shapeOf(res) } : { reservations };
 }
 
-// Annulation d'une réservation (même appel que le bouton « Annuler » du portail).
-export async function cancelReservation(creds, reservationId, fetchFn = fetch) {
-  if (!/^[A-Za-z0-9_-]{1,40}$/.test(reservationId ?? '')) throw new Error('Réservation invalide');
+// Annulation d'une réservation (même appel que le bouton « Annuler » du portail, selon le type de système de la bibliothèque).
+export async function cancelReservation(creds, req, fetchFn = fetch) {
+  const ok = (v, re) => v == null || v === '' || re.test(String(v));
+  const { reservationId, ilsType, seqNo, volume, omnidexId, pickupBranch } = req ?? {};
+  if (!ok(reservationId, /^[A-Za-z0-9_-]{1,40}$/) || !ok(seqNo, /^[A-Za-z0-9_-]{1,40}$/) || !ok(omnidexId, /^[A-Za-z0-9_.:-]{1,60}$/) || !ok(pickupBranch, /^[A-Za-z0-9_-]{1,20}$/) || !ok(volume, /^[^"\\<>]{1,60}$/)) throw new Error('Réservation invalide');
+  if (!reservationId && !seqNo) throw new Error('Réservation invalide');
   const { c, token } = await login(creds, fetchFn);
-  const r = await c.get(token, 'cancelReservation', { ilsType: 'Syracuse', reservationId });
+  let r;
+  if (/^syracuse$/i.test(ilsType ?? '') && reservationId) r = await c.get(token, 'cancelReservation', { ilsType: 'Syracuse', reservationId });
+  else if (reservationId && !seqNo) r = await c.get(token, 'cancelReservation', { ilsType: 'concerto', reservationId });
+  else r = await c.post(token, 'cancelReservation', { seqNo, volNo: volume || null, omnidexId: omnidexId || null, pickupBranch: pickupBranch || null });
   failIfError(r, 'Annulation');
   return { canceled: true };
 }
@@ -408,8 +418,7 @@ export function parseSearch(res) {
     const FR = [
       [/^(authors?|creators?|auteurs?)$/i, 'Auteurs'], [/^(publishers?|publisherName|editors?|[ée]diteurs?)$/i, 'Éditeurs'],
       [/^(date|year|dateIssued\w*|publicationDate|datePublished|dateOfPublication|pubDate|annee)$/i, 'Date'],
-      [/^StockShelfmark$/i, 'Cote'], [/^DomainFacet$/i, 'Domaine'],
-      [/^(type|typeOfDocument\w*|contentType|docType|support)$/i, 'Type de document'],
+      [/^StockShelfmark$/i, 'Cote'],
       [/^(language|langues?)$/i, 'Langue'], [/^(subjects?|topics?|sujets?)$/i, 'Sujets'], [/^genres?$/i, 'Genre'],
       [/^collections?$/i, 'Collection'], [/^series$/i, 'Série'], [/^(summary|abstract|r[ée]sum[ée])$/i, 'Résumé'],
       [/^(physicalDescription|description)$/i, 'Description'], [/^edition$/i, 'Édition'], [/^(isbn\w*)$/i, 'ISBN'],
@@ -427,6 +436,8 @@ export function parseSearch(res) {
       if (label === 'Date') vals = vals.map((v) => (/^\d{4}/.test(v) ? v.slice(0, 4) : v));
       add(label, vals);
     }
+    const zType = flat((e.zmatDisplay ?? []).map?.((x) => x?.value ?? x)).join(', ');
+    if (zType) add('Type de document', [zType]);
     const ORDER = ['Auteurs', 'Éditeurs', 'Date', 'Type de document'];
     fields.sort((x, y) => { const i = ORDER.indexOf(x[0]), j = ORDER.indexOf(y[0]); return (i < 0 ? 99 : i) - (j < 0 ? 99 : j); });
     // Disponibilité : « Document disponible dans un des établissements du réseau » sur le site.
@@ -461,16 +472,15 @@ export async function searchCatalogue(creds, query, fetchFn = fetch, debug = fal
   const { c, token } = await login(creds, fetchFn);
   const res = failIfError(await c.post(token, 'search', { query: [q], queryid: 'NONE', sf: '*', includeFacets: false, pageNo: 1, pageSize: 20, locale: 'fr' }), 'Recherche');
   const results = parseSearch(res);
-  // Réservable ? Le portail n'autorise la réservation que d'un document dont aucun exemplaire n'est disponible : on lit les exemplaires de chaque résultat.
+  // Disponibilité et « réservable » : on lit les exemplaires de chaque résultat (aspect Stock) et on suit les indicateurs du portail.
   await Promise.all(results.slice(0, 20).map(async (r) => {
     try {
-      const copies = parseCopies(failIfError(await c.get(token, 'notice', { id: r.id, locale: 'fr', aspect: 'Stock' }), 'Exemplaires'));
-      const out = copies.filter((x) => !x.available);
+      const stock = failIfError(await c.get(token, 'notice', { id: r.id, locale: 'fr', aspect: 'Stock' }), 'Exemplaires');
+      const copies = parseCopies(stock);
       r.copiesTotal = copies.length;
-      r.copiesAvailable = copies.length - out.length;
-      r.nextReturn = out.map((x) => x.due).filter(Boolean).sort()[0] || '';
-      r.reservable = copies.length > 0 && r.copiesAvailable === 0;
-      if (copies.length) r.availability = r.copiesAvailable > 0 ? 'available' : 'unavailable';
+      r.copiesAvailable = copies.filter((x) => x.available).length;
+      r.nextReturn = copies.filter((x) => !x.available).map((x) => x.due).filter(Boolean).sort()[0] || '';
+      r.reservable = stock?.canReserve !== false && copies.some((x) => x.canReserve);
     } catch { r.reservable = null; }
   }));
   return debug ? { results, shape: shapeOf(res), firstKeys: Object.keys(res?.resultSet?.[0] ?? {}), metaKeys: Object.keys(res?.resultSet?.[0]?.meta ?? {}) } : { results, total: res.totalHits ?? res.total ?? results.length };
@@ -482,21 +492,25 @@ const check = (id) => { if (!ID_RE.test(id ?? '')) throw new Error('Document inv
 // Exemplaires du document (aspect « Stock » de la notice) : le portail réserve toujours un exemplaire précis.
 export function parseCopies(stock) {
   const out = [];
+  const bool = (v) => v === true || String(v).toLowerCase() === 'true';
   for (const grp of stock?.monographicCopies ?? []) {
     const g = grp.data ?? {};
     for (const ch of grp.children ?? []) {
       const d = ch.data ?? {};
       const no = String(d.copyNumber ?? '').trim();
       if (!no) continue;
+      const statDesc = String(d.stat_desc ?? d.statDesc ?? '');
+      const dueKey = Object.keys(d).find((k) => /(^|_)(due|return)/i.test(k) && /date|due/i.test(k));
       out.push({
         no,
-        branch: String(g.branchDesc || d.branchDesc || g.branch || d.branch || ''),
-        place: String(d.subloca || g.subloca || ''),
-        callNumber: String(d.callNumber || d.cote || ''),
-        status: String(d.statDesc || d.statusDescription || d.stat || ''),
-        available: String(d.stat ?? '').toLowerCase() === 'available',
-        due: toISODate(d.dueDate ?? d.returnDate, d.dateFormat),
-        fields: Object.entries(d).filter(([k, v]) => typeof v !== 'object' && v !== '' && v != null && !/^(copyNumber|document|stat|dateFormat)$/.test(k)).map(([k, v]) => [pretty(k), String(v).slice(0, 200)]),
+        branch: String(d.branch_desc ?? g.branch_desc ?? d.branchDesc ?? ''),
+        branchCode: String(d.branch ?? g.branch ?? ''),
+        place: String(d.subloca_desc ?? g.subloca_desc ?? ''),
+        callNumber: String(d.callnumber ?? d.callNumber ?? ''),
+        status: statDesc,
+        available: String(d.stat ?? '').toUpperCase() === 'DI' || /^disponible/i.test(statDesc),
+        canReserve: bool(d.copyCanReserve),
+        due: dueKey ? toISODate(d[dueKey], d.dateFormat) : null,
       });
     }
   }
@@ -518,7 +532,7 @@ export async function reserveInfo(creds, id, fetchFn = fetch, debug = false) {
   const copies = parseCopies(stock);
   const vols = await c.post(token, 'reservationVolumes', { id, locale: 'fr' }).catch((e) => ({ errorReponse: true, error: e.message }));
   // Le portail réserve un exemplaire précis : on essaie d'abord ceux qui ne sont pas disponibles (déjà sortis), puis les autres, puis sans exemplaire.
-  const candidates = [...copies.filter((x) => !x.available), ...copies.filter((x) => x.available)].slice(0, 4).map((x) => x.no);
+  const candidates = [...copies.filter((x) => x.canReserve), ...copies.filter((x) => !x.canReserve)].slice(0, 4).map((x) => x.no);
   let choices, copyNo = '';
   for (const no of [...candidates, '']) {
     for (const [how, call] of [
@@ -817,36 +831,25 @@ const NOTICE_FR = [
   [/language|langue/i, 'Langue'], [/^date|year/i, 'Date'], [/type|format/i, 'Type de document'], [/note/i, 'Notes'], [/edition/i, 'Édition'], [/genre/i, 'Genre'],
   [/callnumber|cote/i, 'Cote'], [/contributor|collaborat/i, 'Autres contributeurs'], [/audience|public/i, 'Public'],
 ];
+// Aspect « Meta » d'une notice : { fields: [{ name, values: [{ qa: { Answer, DocumentCaption } }] }] }. C'est l'onglet « Notice » du site.
+const NOTICE_FIELDS = [
+  ['creator', 'Auteur', true], ['titleFull', 'Titre'], ['publicationStatement', 'Publication', true], ['isbn', 'ISBN'], ['descriptionPhysical', 'Description'],
+  ['seriesGeneral', 'Collection', true], ['abstract', 'Résumé'], ['issn', 'ISSN'], ['subject', 'Sujets', true], ['language', 'Langue'], ['dateIssuedYear', 'Date'],
+];
 export function parseNotice(res) {
-  const by = new Map();
-  const put = (key, own, vals) => {
-    const label = NOTICE_FR.find(([re]) => re.test(key))?.[1] ?? (own && !/^[a-z_.]+$/i.test(own) && own.length < 40 ? own : null);
-    const v = vals.join(' · ');
-    if (!label || !v) return;
-    if (!by.has(label)) by.set(label, []);
-    if (!by.get(label).includes(v)) by.get(label).push(v);
-  };
-  // (a) liste « summary » : { name: "meta.xxx", value }
-  for (const e of findSummary(res) ?? []) {
-    const name = String(e.name ?? '');
-    if (!name.startsWith('meta.')) continue;
-    put(name.slice(5), typeof e.label === 'string' ? e.label.replace(/\s*:\s*$/, '').trim() : '', flat(e.value ?? e.values ?? e.display));
+  const byName = new Map((res?.fields ?? []).map((f) => [f.name, f.values ?? []]));
+  const out = [];
+  for (const [name, label, caption] of NOTICE_FIELDS) {
+    const vals = (byName.get(name) ?? []).map((v) => {
+      const qa = v?.qa ?? v ?? {};
+      const t = (caption && qa.DocumentCaption) || qa.Answer || qa.value || '';
+      return String(t).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+    }).filter(Boolean);
+    if (vals.length) out.push([label, [...new Set(vals)].join(' · ').slice(0, 1500)]);
   }
-  // (b) tout objet « meta » : { creator: [{ value, display }], … } trouvé dans la réponse
-  const walk = (node, depth = 0) => {
-    if (!node || typeof node !== 'object' || depth > 5) return;
-    if (!Array.isArray(node) && node.meta && typeof node.meta === 'object' && !Array.isArray(node.meta)) {
-      for (const [k, arr] of Object.entries(node.meta)) {
-        const vals = flat(Array.isArray(arr) ? arr.map((x) => (x && typeof x === 'object' ? x.value ?? x.display : x)) : arr);
-        put(k, Array.isArray(arr) && typeof arr[0]?.label === 'string' ? arr[0].label.replace(/\s*:\s*$/, '').trim() : '', vals);
-      }
-    }
-    for (const v of Object.values(node)) walk(v, depth + 1);
-  };
-  walk(res);
-  const order = ['Auteur', 'Titre', 'Publication', 'Date', 'Type de document', 'ISBN', 'ISSN', 'Description', 'Collection', 'Résumé', 'Sujets'];
-  const labels = [...order.filter((l) => by.has(l)), ...[...by.keys()].filter((l) => !order.includes(l))];
-  return labels.map((l) => [l, by.get(l).join(' · ').slice(0, 1500)]);
+  if (!out.some(([l]) => l === 'ISBN') && res?.firstISBN) out.splice(Math.min(3, out.length), 0, ['ISBN', String(res.firstISBN)]);
+  if (!out.some(([l]) => l === 'Date')) { const d = byName.get('dateIssuedFormatted')?.[0]?.qa?.Answer; if (d) out.push(['Date', String(d)]); }
+  return out;
 }
 
 export async function fetchNotice(creds, id, fetchFn = fetch, debug = false) {
