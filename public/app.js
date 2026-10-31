@@ -354,16 +354,15 @@ function searchCard(item) {
   const t = el('div', 'card-title');
   t.append(el('h3', '', item.title));
   if (item.author) t.append(el('p', '', item.author));
-  const meta = [item.type, item.year].filter(Boolean).join(' · ');
-  if (meta) t.append(el('span', 'due', meta));
   head.append(cover(item), t);
   li.append(head);
-  const main = rows(item.fields.slice(0, 6));
+  const main = rows(item.fields);
   if (main) li.append(main);
-  if (item.fields.length > 6) {
-    const det = el('details');
-    det.append(el('summary', '', 'Plus de détails'), rows(item.fields.slice(6)));
-    li.append(det);
+  if (item.availability) {
+    const ok = item.availability === 'available';
+    const chips = el('div', 'chips');
+    chips.append(el('span', 'chip ' + (ok ? 'good' : 'warn'), ok ? '✓ Document disponible dans un des établissements du réseau' : 'Aucun exemplaire disponible actuellement'));
+    li.append(chips);
   }
   const row = el('div', 'btn-row');
   const btn = el('button', 'primary small', 'Réserver');

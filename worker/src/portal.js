@@ -402,15 +402,33 @@ export function parseSearch(res) {
     const fields = [];
     const seen = new Set();
     const add = (label, vals) => { const v = [...new Set(vals)].join(' · ').slice(0, 600); if (v && !seen.has(label + v)) { seen.add(label + v); fields.push([label, v]); } };
-    // Seuls les champs que l'on sait nommer clairement sont gardés (le reste est du jargon technique du portail).
-    const KEEP = ['summary', 'publisher', 'collection', 'series', 'language', 'subject', 'genre', 'physicalDescription', 'edition', 'isbn'];
-    for (const k of KEEP) { const v = e[k] ?? e.meta?.[k]; if (v != null) add(LABELS[k], flat(v)); }
+    // Comme la carte du site officiel : les lignes « Auteurs / Éditeurs / Date / Type de document » viennent de la section meta du portail.
+    for (const [k, arr] of Object.entries(e.meta ?? {})) {
+      if (SKIP.test(k)) continue;
+      const label = (Array.isArray(arr) && typeof arr[0]?.label === 'string' && arr[0].label.trim()) || pretty(k);
+      add(label.replace(/\s*:\s*$/, ''), flat(Array.isArray(arr) ? arr.map((x) => (x && typeof x === 'object' && 'value' in x ? x.value : x)) : arr));
+    }
+    for (const k of ['summary', 'publisher', 'collection', 'language', 'subject', 'genre', 'physicalDescription', 'edition', 'isbn']) {
+      if (e[k] != null && !fields.some(([l]) => l === LABELS[k])) add(LABELS[k], flat(e[k]));
+    }
+    // Disponibilité : « Document disponible dans un des établissements du réseau » sur le site.
+    const st = e.physicalStock;
+    let availability = '';
+    const numv = (x) => (x != null && x !== '' && !isNaN(Number(x)) ? Number(x) : null);
+    const stv = Array.isArray(st) ? st[0]?.value ?? st[0] : st?.value ?? st;
+    if (stv && typeof stv === 'object') {
+      const k = Object.keys(stv).find((x) => /avail|dispo/i.test(x));
+      const n = k ? numv(stv[k]) : null;
+      availability = n == null ? '' : n > 0 ? 'available' : 'unavailable';
+    } else if (numv(stv) != null) availability = numv(stv) > 0 ? 'available' : 'unavailable';
+    else if (typeof stv === 'string' && stv) availability = /^(true|available)$/i.test(stv) ? 'available' : /^(false|unavailable)$/i.test(stv) ? 'unavailable' : '';
     return {
       id,
       title: cleanTitle(first(e.title)) || 'Document',
       author: cleanAuthor(first(e.author)),
-      year: String(first(e.date) ?? first(e.year) ?? '').slice(0, 10),
-      type: flat(e.typeOfDocumentFacet ?? e.contentType ?? e.format).join(', '),
+      year: '',
+      type: '',
+      availability,
       coverId: num ? id : '',
       isbn: String(first(e.isbn) ?? '').replace(/[^0-9Xx]/g, ''),
       fields,
