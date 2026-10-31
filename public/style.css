@@ -121,3 +121,10 @@ button.danger{color:#b3261e}
 .stat-sub{font-size:.88rem;color:var(--muted)}
 .stat.soon .stat-sub{color:var(--warn);font-weight:600}.stat.late .stat-sub{color:var(--late);font-weight:600}
 .stat-go{font-size:1.6rem;color:var(--muted)}
+
+/* comptes multiples */
+.accounts{list-style:none;padding:0;margin:0 0 4px;display:grid;gap:8px}
+.accounts li{display:flex;align-items:center;gap:12px;padding:10px 14px;border-radius:14px;background:var(--card);border:1px solid var(--line)}
+.accounts li.on{border-color:var(--accent)}
+.acc-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;font-weight:600}
+.accounts .link{padding:4px 0}

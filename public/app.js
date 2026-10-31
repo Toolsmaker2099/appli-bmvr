@@ -3,11 +3,40 @@ const RELAY = 'https://appli-bmvr-relais.toolsmaker.workers.dev';
 
 const $ = (id) => document.getElementById(id);
 const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
-const store = {
+// Plusieurs comptes sur le même appareil : chaque compte a ses propres identifiants et ses propres copies de données.
+// Les clés « par compte » sont rangées sous p:<id>:<clé> ; 'profiles' liste les comptes et 'active' donne le compte courant.
+const PER = new Set(['user', 'pass', 'cache', 'resaCache', 'msgCache', 'seenMsgs', 'pickup', 'lastTrace']);
+const raw = {
   get: (k) => { try { return localStorage.getItem(k) || ''; } catch { return ''; } },
   set: (k, v) => { try { localStorage.setItem(k, v); } catch {} },
   del: (k) => { try { localStorage.removeItem(k); } catch {} },
 };
+const getProfiles = () => { try { return JSON.parse(raw.get('profiles') || '[]'); } catch { return []; } };
+// Reprise d'un compte enregistré par une version précédente de l'appli.
+if (!raw.get('profiles') && raw.get('user')) {
+  raw.set('profiles', JSON.stringify([{ id: 'a1', user: raw.get('user') }])); raw.set('active', 'a1');
+  for (const k of PER) { const v = raw.get(k); if (v) { raw.set(`p:a1:${k}`, v); raw.del(k); } }
+}
+const activeId = () => { const a = raw.get('active'); return getProfiles().some((x) => x.id === a) ? a : ''; };
+const storeKey = (k) => (PER.has(k) && activeId() ? `p:${activeId()}:${k}` : k);
+const store = {
+  get: (k) => raw.get(storeKey(k)),
+  set: (k, v) => raw.set(storeKey(k), v),
+  del: (k) => raw.del(storeKey(k)),
+};
+function addProfile(user, pass) {
+  const list = getProfiles();
+  let p = list.find((x) => x.user.toLowerCase() === user.toLowerCase());
+  if (!p) { p = { id: 'a' + Date.now().toString(36), user }; list.push(p); raw.set('profiles', JSON.stringify(list)); }
+  raw.set('active', p.id); store.set('user', user); store.set('pass', pass);
+}
+function switchProfile(id) { raw.set('active', id); location.hash = '#accueil'; location.reload(); }
+function removeActiveProfile() {
+  const id = activeId(); if (!id) return;
+  for (const k of PER) raw.del(`p:${id}:${k}`);
+  const rest = getProfiles().filter((x) => x.id !== id);
+  raw.set('profiles', JSON.stringify(rest)); raw.set('active', rest[0]?.id || '');
+}
 const hasCreds = () => !!(store.get('user') && store.get('pass'));
 const readCache = () => { try { return JSON.parse(store.get('cache') || 'null'); } catch { return null; } };
 
@@ -667,24 +696,40 @@ async function openEspace(kind) {
 }
 
 // ---------- compte ----------
-function signOut() { ['user', 'pass', 'cache', 'resaCache', 'msgCache', 'seenMsgs', 'lastTrace'].forEach(store.del); updateBadge(); }
+function signOut() { removeActiveProfile(); updateBadge(); updateEspaceBadge(); }
 
+let addingAccount = false;
 function renderAccount() {
   const on = hasCreds();
-  $('loginBox').hidden = on;
+  $('loginBox').hidden = on && !addingAccount;
   $('accountBox').hidden = !on;
   $('who').textContent = store.get('user');
+  const box = $('profilesBox'); box.replaceChildren();
+  const list = getProfiles();
+  if (list.length) {
+    box.append(el('h2', '', list.length > 1 ? 'Comptes sur cet appareil' : 'Compte'));
+    const ul = el('ul', 'accounts');
+    for (const pr of list) {
+      const li = el('li', pr.id === activeId() ? 'on' : '');
+      li.append(el('span', 'avatar', pr.user.slice(0, 2).toUpperCase()), el('span', 'acc-name', pr.user));
+      if (pr.id === activeId()) li.append(el('span', 'chip good', 'Actif'));
+      else { const b = el('button', 'link', 'Utiliser'); b.onclick = () => switchProfile(pr.id); li.append(b); }
+      ul.append(li);
+    }
+    box.append(ul);
+    if (!addingAccount) { const add = el('button', 'secondary', '➕ Ajouter un autre compte'); add.onclick = () => { addingAccount = true; renderAccount(); }; box.append(add); }
+  }
   $('diag').hidden = !on; $('diagSearch').hidden = !on;
 }
 
 $('save').onclick = () => {
   const u = $('user').value.trim(), p = $('pass').value;
   if (!u || !p) { $('err').textContent = 'Saisissez votre identifiant et votre mot de passe.'; return; }
-  store.set('user', u); store.set('pass', p);
-  $('pass').value = ''; $('err').textContent = '';
+  addProfile(u, p); addingAccount = false;
+  $('user').value = ''; $('pass').value = ''; $('err').textContent = '';
   location.hash = '#prets';
 };
-$('reset').onclick = () => { signOut(); go(); };
+$('reset').onclick = () => { if (!confirm('Retirer ce compte de cet appareil ?')) return; signOut(); location.hash = '#accueil'; location.reload(); };
 $('sync').onclick = () => (location.hash === '#resa' ? openReservations() : openLoans());
 $('diagSearch').onclick = async () => {
   $('diagOut').hidden = false; $('diagOut').textContent = 'Diagnostic en cours…';

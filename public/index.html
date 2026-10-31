@@ -75,6 +75,7 @@
   <!-- COMPTE -->
   <section id="view-compte" class="view" hidden>
     <a class="back" href="#espace">‹ Mon espace</a>
+    <div id="profilesBox"></div>
     <div id="loginBox">
       <h2>Connexion à la BMVR</h2>
       <p class="hint">Vos identifiants restent sur cet appareil. Ils ne sont envoyés au relais que le temps de lire vos prêts ou de vous connecter à un service, et n'y sont pas conservés.</p>
@@ -84,9 +85,8 @@
       <p id="err" class="hint err"></p>
     </div>
     <div id="accountBox" hidden>
-      <h2>Compte</h2>
-      <p>Connecté en tant que <strong id="who"></strong>.</p>
-      <button id="reset" class="secondary">Se déconnecter et oublier mes identifiants</button>
+      <p class="hint">Compte actif : <strong id="who"></strong>.</p>
+      <button id="reset" class="secondary">Retirer ce compte de cet appareil</button>
     </div>
     <h2>À propos</h2>
     <p class="hint">« Ma BMVR » est un projet personnel indépendant. Il n'est ni créé, ni validé, ni soutenu par la Bibliothèque municipale à vocation régionale de Marseille. Les données affichées viennent du portail officiel de la bibliothèque.</p>
