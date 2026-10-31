@@ -31,11 +31,12 @@
   </section>
   <section id="links">
     <h2>Services en ligne</h2>
-    <p class="hint">Connectez-vous d'abord à la BMVR dans votre navigateur : la connexion aux services est ensuite automatique.</p>
+    <p class="hint">Un toucher suffit : l'appli vous connecte à la BMVR puis au service.</p>
     <a href="https://www.bmvr.marseille.fr/" target="_blank" rel="noopener">Site de la BMVR (compte, catalogue, réservations)</a>
-    <a href="https://www.bmvr.marseille.fr/in/rest/cas/login?service=https%3A%2F%2Fwww.mediapart.fr%2F%3Fcasid%3DBMVR.Marseille" target="_blank" rel="noopener">Mediapart</a>
-    <a href="https://www.bmvr.marseille.fr/mars-actu-connexion-referer" target="_blank" rel="noopener">Marsactu</a>
-    <a href="https://www.cafeyn.co/loginexternal/648" target="_blank" rel="noopener">Cafeyn</a>
+    <button class="service" data-service="mediapart">Mediapart</button>
+    <button class="service" data-service="marsactu">Marsactu</button>
+    <button class="service" data-service="cafeyn">Cafeyn</button>
+    <p id="svcErr" class="hint"></p>
   </section>
   <section id="foot" hidden><button id="reset" class="link">Se déconnecter (oublier mes identifiants)</button></section>
 </main>

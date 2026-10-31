@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { checksum, fetchLoans, parseLoans, toISODate } from './src/portal.js';
+import { checksum, fetchLoans, fetchServiceUrl, parseLoans, toISODate } from './src/portal.js';
 
 test('somme de contrôle identique à celle du portail', () => {
   // 305419896 + 'a'(97)*1 + 'b'(98)*2
@@ -38,4 +38,23 @@ test('dates : format du portail, ISO, compact', () => {
   assert.equal(toISODate('03/11/2026'), '2026-11-03');
   assert.equal(toISODate('11/14/26', 'MM/dd/yy'), '2026-11-14');
   assert.equal(toISODate(''), null);
+});
+
+test('service : suit le CAS et renvoie l\'adresse du service avec son ticket sans l\'ouvrir', async () => {
+  const seen = [];
+  const fake = async (url, opts = {}) => {
+    seen.push(url);
+    const head = (status, loc) => ({ ok: false, status, headers: { get: (h) => (h === 'Location' ? loc : null), getSetCookie: () => [] } });
+    const ok = (b) => ({ ok: true, status: 200, headers: { getSetCookie: () => ['JSESSIONID=abc; Path=/'], get: () => null }, json: async () => b, text: async () => b });
+    if (url.endsWith('settings.js')) return ok('{"apiToken":"TOK"}');
+    if (url.includes('/authenticate')) return ok({ token: 'SESS' });
+    if (url.includes('connect.xhtml')) return head(201, null);
+    if (url.startsWith('https://www.cafeyn.co/loginexternal')) return head(302, 'https://api.cafeyn.co/users/login/external/648');
+    if (url.startsWith('https://api.cafeyn.co/users')) return head(302, 'https://www.bmvr.marseille.fr/in/rest/cas/login?service=x');
+    if (url.includes('/cas/login')) { assert.equal(opts.headers.Cookie, 'JSESSIONID=abc'); return head(302, 'https://api.cafeyn.co/users/login/external/648?ticket=ST-1'); }
+    throw new Error('inattendu ' + url);
+  };
+  const u = await fetchServiceUrl({ username: 'u', password: 'p' }, 'cafeyn', fake);
+  assert.equal(u, 'https://api.cafeyn.co/users/login/external/648?ticket=ST-1');
+  assert.ok(!seen.some((x) => x.includes('ticket=')), 'le ticket ne doit pas être consommé par le relais');
 });

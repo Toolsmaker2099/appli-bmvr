@@ -22,6 +22,7 @@ export async function getApiToken(fetchFn = fetch) {
 }
 
 function makeClient(fetchFn) {
+  const BMVR_HOST = new URL(BASE).host;
   let apiToken = null;
   let cookies = new Map();
   const cookieHeader = () => [...cookies].map(([k, v]) => `${k}=${v}`).join('; ');
@@ -55,6 +56,26 @@ function makeClient(fetchFn) {
       if (res.status === 401 && path === 'authenticate') throw new AuthError('Connexion refusée : identifiant ou mot de passe incorrect');
       if (!res.ok) throw new Error(`Portail: ${path} → HTTP ${res.status}`);
       return res.json();
+    },
+    // Suit les redirections d'un service en ligne (CAS) avec la session de la personne, et s'arrête juste avant d'ouvrir
+    // l'adresse finale du service : elle contient un ticket à usage unique que le navigateur de la personne utilisera.
+    async serviceUrl(startUrl) {
+      let url = startUrl;
+      let cameFromBmvr = false;
+      for (let hop = 0; hop < 10; hop++) {
+        const host = new URL(url).host;
+        const isBmvr = host === BMVR_HOST;
+        const res = await fetchFn(url, { redirect: 'manual', headers: { ...base, ...(isBmvr ? { Cookie: cookieHeader() } : {}) } });
+        if (isBmvr) keep(res);
+        const loc = res.headers.get('Location');
+        if (!loc || res.status < 300 || res.status > 399) throw new Error(`Service : pas de redirection (HTTP ${res.status})`);
+        const next = new URL(loc, url).toString();
+        if (isBmvr && new URL(next).host !== BMVR_HOST) return next;
+        if (isBmvr && /\/login(\?|$)/.test(new URL(next).pathname) && new URL(next).host === BMVR_HOST && hop > 0) throw new Error('Service : la BMVR ne reconnaît pas la session');
+        cameFromBmvr = cameFromBmvr || isBmvr;
+        url = next;
+      }
+      throw new Error('Service : trop de redirections');
     },
     cookieNames: () => [...cookies.keys()],
     // Sonde de diagnostic : même appel, avec des variantes de l'en-tête d'autorisation / des cookies.
@@ -205,4 +226,22 @@ export async function diagnose({ username, password }, fetchFn = fetch) {
     await step(`${aspect} sans paramètre`, () => c.get(session.token, aspect, {}));
   }
   return out;
+}
+
+export const SERVICES = {
+  mediapart: 'https://www.bmvr.marseille.fr/in/rest/cas/login?service=https%3A%2F%2Fwww.mediapart.fr%2F%3Fcasid%3DBMVR.Marseille',
+  marsactu: 'https://www.bmvr.marseille.fr/mars-actu-connexion-referer',
+  cafeyn: 'https://www.cafeyn.co/loginexternal/648',
+};
+
+// Connexion à la BMVR puis adresse d'entrée (avec ticket) du service demandé.
+export async function fetchServiceUrl({ username, password }, service, fetchFn = fetch) {
+  const start = SERVICES[service];
+  if (!start) throw new Error('Service inconnu');
+  const c = makeClient(fetchFn);
+  await c.init();
+  const session = await c.post(null, 'authenticate', { username: username.includes('@') ? username.toLowerCase() : username, password, locale: 'fr' });
+  if (!session.token) throw new AuthError(`Connexion refusée : ${session.error || 'identifiants incorrects ?'}`);
+  await c.connect();
+  return c.serviceUrl(start);
 }
