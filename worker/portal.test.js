@@ -14,6 +14,7 @@ test('connexion + prêts avec un portail simulé', async () => {
     calls.push([url, opts]);
     const ok = (b, h = {}) => ({ ok: true, status: 200, headers: { getSetCookie: () => ['JSESSIONID=abc; Path=/'], ...h }, json: async () => b, text: async () => b });
     if (url.endsWith('settings.js')) return ok('var s = {"apiToken":"TOK"}');
+    if (url.includes('connect.xhtml')) return { ok: true, status: 200, headers: { getSetCookie: () => [] } };
     if (url.includes('/authenticate')) return ok({ token: 'SESS' });
     if (url.includes('/loans')) return ok({ items: [{ seqNo: 'x7', data: { dateDue: 1793000000000 } }] });
     if (url.includes('/resolveBySeqNo')) return ok({ resultSet: [{ id: [{ value: 'x7' }], title: ['Dune'], author: ['Herbert'] }] });
