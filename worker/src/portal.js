@@ -525,12 +525,30 @@ export async function reserveRank(creds, { id, volume, branch, copyNo }, fetchFn
   return { ok: r.status !== false, rank: r.rank ?? null };
 }
 
-// Réservation effective.
+// Réservation effective. Le portail garde en mémoire (dans la session) les étapes précédentes : on les rejoue donc dans la même
+// session avant de réserver, comme le fait l'appli du portail (volumes, lieux de retrait, rang), puis on essaie quelques formes de requête.
 export async function makeReservation(creds, { id, volume, branch, copyNo }, fetchFn = fetch) {
   check(id);
   if (!/^[A-Za-z0-9_-]{1,20}$/.test(branch ?? '')) throw new Error('Bibliothèque de retrait invalide');
+  if (copyNo != null && !/^[A-Za-z0-9_-]{1,40}$/.test(String(copyNo))) throw new Error('Exemplaire invalide');
   const { c, token } = await login(creds, fetchFn);
-  const r = await c.post(token, 'makeReservation', { id, volume: volume || null, branch, ...(copyNo ? { monographicCopyNo: copyNo } : {}), locale: 'fr' });
-  failIfError(r, 'Réservation');
-  return { done: r.inSuccess === true };
+  const vol = volume || null;
+  await c.post(token, 'reservationVolumes', { id, locale: 'fr' }).catch(() => null);
+  await c.post(token, 'reservationChoices', { id, ...(copyNo ? { serialCopyNo: copyNo } : {}), locale: 'fr' }).catch(() => null);
+  await c.post(token, 'reservationRankWithStatus', { id, volume: vol, branch, ...(copyNo ? { monographicCopyNo: copyNo } : {}) }).catch(() => null);
+  const errs = [];
+  for (const [how, body] of [
+    ['exemplaire', { id, volume: vol, branch, ...(copyNo ? { monographicCopyNo: copyNo } : {}), locale: 'fr' }],
+    ['exemplaire+série', { id, volume: vol, branch, ...(copyNo ? { serialCopyNo: copyNo, monographicCopyNo: copyNo } : {}), locale: 'fr' }],
+    ['sans exemplaire', { id, volume: vol, branch, locale: 'fr' }],
+  ]) {
+    try {
+      const r = failIfError(await c.post(token, 'makeReservation', body), 'Réservation');
+      return { done: r.inSuccess === true };
+    } catch (e) {
+      if (e instanceof AuthError || !/HTTP 500|Fatal|InvalidRequest/.test(e.message)) throw e;
+      errs.push(`${how}: ${e.message.replace(/^Portail: makeReservation → /, '').slice(0, 60)}`);
+    }
+  }
+  throw new Error(`Réservation refusée par le portail (${errs.join(' | ')})`);
 }
