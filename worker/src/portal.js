@@ -95,10 +95,11 @@ function makeClient(fetchFn) {
       return res.status;
     },
     async get(token, path, params) {
-      const qs = new URLSearchParams(Object.entries(params).filter(([, v]) => v != null)).toString();
+      // Comme l'appli du portail : adresse encodée, mais somme de contrôle calculée sur la version décodée.
+      const qs = Object.entries(params).filter(([, v]) => v != null).map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`).join('&');
       const signed = `?${qs}`;
       const res = await fetchFn(`${API}/api/${path}${signed}&_=${Date.now()}`, {
-        headers: { ...base, 'X-InMedia-Authorization': `Bearer ${token} ${apiToken} ${checksum(signed)}`, Cookie: cookieHeader() },
+        headers: { ...base, 'X-InMedia-Authorization': `Bearer ${token} ${apiToken} ${checksum(decodeURIComponent(signed))}`, Cookie: cookieHeader() },
       });
       keep(res);
       if (!res.ok) throw new Error(`Portail: ${path} → HTTP ${res.status} ${(await res.text()).replace(/\s+/g, ' ').slice(0, 200)}`);
