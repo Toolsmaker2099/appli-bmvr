@@ -962,3 +962,17 @@ export async function fetchNotice(creds, id, fetchFn = fetch, debug = false) {
   const fields = parseNotice(res);
   return debug ? { fields, shape: shapeOf(res), keys: Object.keys(res ?? {}) } : { fields };
 }
+
+// Informations aux usagers (travaux, fermetures, réouvertures) : texte de la page officielle des horaires, lu dans le contenu public du portail.
+export async function fetchInfos(fetchFn = fetch) {
+  const c = makeClient(fetchFn);
+  await c.init();
+  const r = await c.get(null, 'contentGraphByPath', { locale: 'fr', path: '/horaires-ete-bibliotheques', depth: 6 });
+  let best = '';
+  const walk = (v) => {
+    if (typeof v === 'string') { if (/PERTURBATIONS|INFORMATIONS AUX USAGERS/i.test(v) && v.length > best.length && v.length < 20000) best = v; }
+    else if (v && typeof v === 'object') Object.values(v).forEach(walk);
+  };
+  walk(r);
+  return { html: best.slice(0, 12000) };
+}

@@ -725,13 +725,14 @@ function addFavButton(li, item) {
 }
 
 // ---------- mon espace ----------
-const ESPACE = { profile: 'Mon profil', favoris: 'Mes favoris', loanhistory: 'Historique des prêts', messages: 'Messages', fines: 'Amendes' };
+const ESPACE = { profile: 'Mon profil', favoris: 'Mes favoris', loanhistory: 'Historique des prêts', messages: 'Messages', fines: 'Amendes', bibliotheques: 'Bibliothèques' };
 const MENU = [
   ['profile', '👤', 'Mon profil', 'Coordonnées et abonnement'],
   ['favoris', '♡', 'Mes favoris', 'Vos listes de documents'],
   ['loanhistory', '🕘', 'Historique des prêts', 'Tout ce que vous avez emprunté'],
   ['messages', '✉️', 'Messages', 'Avis de la bibliothèque'],
   ['fines', '💶', 'Amendes', 'Montants éventuels à régler'],
+  ['bibliotheques', '🏛️', 'Bibliothèques', 'Infos du réseau, itinéraires, horaires'],
 ];
 let espaceKind = store.get('espaceKind') || 'favoris';
 
@@ -939,6 +940,38 @@ function espaceMenu(body, status) {
   body.append(ul);
 }
 
+const LIBRARIES = [
+  ['Bibliothèque de l\u2019Alcazar', 'Bibliothèque de l\u2019Alcazar Marseille', 'Centre-ville'],
+  ['Bibliothèque de Bonneveine', 'Bibliothèque de Bonneveine Marseille', '8e'],
+  ['Bibliothèque des Cinq-Avenues', 'Bibliothèque des Cinq-Avenues Marseille', '4e'],
+  ['Bibliothèque du Merlan', 'Bibliothèque du Merlan Marseille', '14e'],
+  ['Bibliothèque de la Grognarde', 'Bibliothèque de la Grognarde Marseille', ''],
+  ['Bibliothèque du Panier (Maison Diamantée)', 'Bibliothèque du Panier Maison Diamantée Marseille', '2e'],
+  ['Bibliothèque de Castellane', 'Bibliothèque de Castellane Marseille', '6e'],
+  ['Bibliothèque de Saint-André', 'Bibliothèque de Saint-André Marseille', '16e'],
+  ['Bibliothèque Salim-Hatubou', 'Bibliothèque Salim Hatubou Marseille', ''],
+  ['Ludothèque Simone de Beauvoir', 'Ludothèque Simone de Beauvoir Marseille', ''],
+];
+async function showLibraries(body, status) {
+  status.textContent = '';
+  const infos = el('div', 'card infos'); infos.hidden = true; body.append(infos);
+  const top = el('a', 'primary small linkbtn', '🕒 Voir les horaires officiels'); top.href = 'https://www.bmvr.marseille.fr/horaires-bibliotheques'; top.target = '_blank'; top.rel = 'noopener noreferrer';
+  body.append(top);
+  body.append(el('p', 'hint', 'Les horaires changent selon la saison et les travaux : ils sont publiés sur le site officiel.'));
+  const ul = el('ul', 'cards');
+  for (const [name, q, area] of LIBRARIES) {
+    const li = el('li', 'card libcard');
+    const t = el('div', 'lib-t'); t.append(el('strong', '', name)); if (area) t.append(el('small', '', area));
+    const a = el('a', 'secondary small linkbtn', '📍 Itinéraire'); a.href = 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(q); a.target = '_blank'; a.rel = 'noopener noreferrer';
+    li.append(t, a); ul.append(li);
+  }
+  body.append(ul);
+  try {
+    const d = await call('/infos');
+    if (d.html) { infos.hidden = false; infos.append(el('h4', '', '⚠️ Informations aux usagers'), richBody(d.html, '')); }
+  } catch { /* les infos sont facultatives */ }
+}
+
 async function openEspace(kind) {
   const body = $('espaceBody'), status = $('espaceStatus');
   $('back').hidden = !kind;
@@ -947,6 +980,7 @@ async function openEspace(kind) {
   body.replaceChildren(); status.textContent = '';
   if (!hasCreds()) return needLogin(body, status);
   if (espaceKind === 'favoris') return showBaskets(body, status);
+  if (espaceKind === 'bibliotheques') return showLibraries(body, status);
   status.textContent = 'Chargement…';
   try {
     const d = await call('/account', { kind: espaceKind });

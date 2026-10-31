@@ -223,3 +223,11 @@ details[open]>summary.acc{border-bottom-left-radius:0;border-bottom-right-radius
 .selbar{position:sticky;bottom:calc(76px + env(safe-area-inset-bottom));padding:10px 0;z-index:5}
 .selbar .primary{margin-top:0;box-shadow:0 4px 14px rgba(0,0,0,.25)}
 .selbar .primary:disabled{opacity:.6}
+
+/* bibliothèques */
+.linkbtn{display:inline-block;text-align:center;text-decoration:none;width:auto;margin:0;padding:10px 16px;border-radius:12px;font-weight:600;font-size:.9rem}
+a.primary.linkbtn{background:var(--accent);color:var(--accent-fg);display:block;margin:0 0 8px}
+.libcard{display:flex;align-items:center;gap:10px;padding:12px 14px;border-left-width:1px}
+.lib-t{flex:1;min-width:0;display:flex;flex-direction:column;line-height:1.25}.lib-t small{color:var(--muted)}
+.card.infos{border-left-color:var(--warn);padding:12px 14px;margin-bottom:12px}
+.card.infos h4{margin:0 0 6px}
