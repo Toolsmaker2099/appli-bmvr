@@ -101,22 +101,43 @@ export function findText(node, keys) {
   return null;
 }
 
-export function toISODate(v) {
+// Date du portail → AAAA-MM-JJ. Le portail indique son format (dateFormat, p. ex. "dd/MM/yyyy") ; à défaut on devine.
+export function toISODate(v, fmt) {
   if (v == null || v === '') return null;
-  const d = new Date(typeof v === 'string' && /^\d+$/.test(v) ? Number(v) : v);
+  const str = String(v).trim();
+  const pad = (n) => String(n).padStart(2, '0');
+  const ok = (y, m, d) => (y >= 1900 && m >= 1 && m <= 12 && d >= 1 && d <= 31 ? `${y}-${pad(m)}-${pad(d)}` : null);
+  if (fmt && /[dMy]/.test(fmt)) {
+    const order = [];
+    const re = fmt.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/yyyy|yy|MM|dd/g, (t) => { order.push(t); return t === 'yyyy' ? '(\\d{4})' : '(\\d{2})'; });
+    const m = str.match(new RegExp(re));
+    if (m && order.length === 3) {
+      const g = Object.fromEntries(order.map((t, i) => [t, Number(m[i + 1])]));
+      const y = g.yyyy ?? 2000 + g.yy;
+      const r = ok(y, g.MM, g.dd);
+      if (r) return r;
+    }
+  }
+  let m = str.match(/^(\d{4})-(\d{2})-(\d{2})/) || str.match(/^(\d{4})(\d{2})(\d{2})$/);
+  if (m) return ok(+m[1], +m[2], +m[3]);
+  m = str.match(/^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})/);
+  if (m) return ok(+m[3], +m[2], +m[1]); // jour/mois/année (usage français)
+  if (/^\d{10,}$/.test(str)) { const d = new Date(Number(str)); return isNaN(d) ? null : d.toISOString().slice(0, 10); }
+  const d = new Date(str);
   return isNaN(d) ? null : d.toISOString().slice(0, 10);
 }
 
-export function parseLoans(loans, resolved = {}) {
-  return (loans?.items ?? [])
-    .map((it, i) => {
-      const dueDate = toISODate(findText(it, ['dateDue', 'dueDate', 'returnDate']) ?? it.dateDue ?? it.data?.dateDue);
-      const seq = String(it.seqNo ?? it.data?.seqNo ?? i);
-      const rec = resolved[seq] ?? it.resultItem;
-      const title = findText(rec, ['title', 'Title', 'recordTitle', 'name']) ?? findText(it, ['title', 'documentTitle']) ?? 'Document';
-      const author = findText(rec, ['author', 'Author', 'creator']) ?? '';
-      return { id: seq, title, author, dueDate, renewable: it.renewable ?? it.canRenew ?? null };
-    })
+// Le portail renvoie la liste directement : [{ title, author, returnDate, dateFormat, seqNo, isLate, isRenewable, … }].
+export function parseLoans(loans) {
+  const items = Array.isArray(loans) ? loans : loans?.items ?? [];
+  return items
+    .map((it, i) => ({
+      id: String(it.seqNo ?? it.documentNumber ?? i),
+      title: String(it.title ?? it.documentTitle ?? 'Document').trim(),
+      author: String(it.author ?? '').trim(),
+      dueDate: toISODate(it.returnDate ?? it.dateDue ?? it.dueDate, it.dateFormat),
+      renewable: it.isRenewable ?? null,
+    }))
     .filter((l) => l.dueDate)
     .sort((a, b) => a.dueDate.localeCompare(b.dueDate));
 }
@@ -134,18 +155,8 @@ export async function fetchLoans({ username, password }, fetchFn = fetch, debug 
   }
   if (!loans) throw lastErr;
   if (loans.errorReponse) throw new Error(`Portail: loans → ${loans.code} ${String(loans.error).slice(0, 150)}`);
-  const seqNos = (loans.items ?? []).map((it) => it.seqNo ?? it.data?.seqNo ?? it.data?.seq_no ?? it.bacNo ?? it.data?.bacNo).filter((x) => x != null);
-  const resolved = {};
-  let rs = null;
-  if (seqNos.length) {
-    rs = await c.post(session.token, 'resolveBySeqNo', `locale=fr&ids=${seqNos.join(',')}`, { binary: true, contentType: 'application/x-www-form-urlencoded' });
-    for (const r of rs.resultSet ?? []) {
-      const id = r.id?.[0]?.value;
-      if (id != null) resolved[String(id)] = r;
-    }
-  }
-  const parsed = parseLoans(loans, resolved);
-  return debug ? { loans: parsed, shape: shapeOf({ loans, resolved: rs }) } : { loans: parsed };
+  const parsed = parseLoans(loans);
+  return debug ? { loans: parsed, shape: shapeOf(loans) } : { loans: parsed };
 }
 
 // Structure sans valeurs : utile pour ajuster l'analyse sans exposer de données personnelles.

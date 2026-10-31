@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { checksum, fetchLoans, parseLoans } from './src/portal.js';
+import { checksum, fetchLoans, parseLoans, toISODate } from './src/portal.js';
 
 test('somme de contrôle identique à celle du portail', () => {
   // 305419896 + 'a'(97)*1 + 'b'(98)*2
@@ -16,8 +16,7 @@ test('connexion + prêts avec un portail simulé', async () => {
     if (url.endsWith('settings.js')) return ok('var s = {"apiToken":"TOK"}');
     if (url.includes('connect.xhtml')) return { ok: true, status: 200, headers: { getSetCookie: () => [] } };
     if (url.includes('/authenticate')) return ok({ token: 'SESS' });
-    if (url.includes('/loans')) return ok({ items: [{ seqNo: 'x7', data: { dateDue: 1793000000000 } }] });
-    if (url.includes('/resolveBySeqNo')) return ok({ resultSet: [{ id: [{ value: 'x7' }], title: ['Dune'], author: ['Herbert'] }] });
+    if (url.includes('/loans')) return ok([{ seqNo: 'x7', title: 'Dune', author: 'Herbert', returnDate: '14/11/2026', dateFormat: 'dd/MM/yyyy', isRenewable: true }]);
     throw new Error('inattendu ' + url);
   };
   const { loans } = await fetchLoans({ username: 'u', password: 'p' }, fake);
@@ -28,5 +27,14 @@ test('connexion + prêts avec un portail simulé', async () => {
 });
 
 test('parseLoans ignore les lignes sans date', () => {
-  assert.equal(parseLoans({ items: [{ seqNo: 1 }] }).length, 0);
+  assert.equal(parseLoans([{ seqNo: 1, title: 'x' }]).length, 0);
+});
+
+test('dates : format du portail, ISO, compact', () => {
+  assert.equal(toISODate('14/11/2026', 'dd/MM/yyyy'), '2026-11-14');
+  assert.equal(toISODate('2026-11-14', 'dd/MM/yyyy'), '2026-11-14');
+  assert.equal(toISODate('20261114'), '2026-11-14');
+  assert.equal(toISODate('03/11/2026'), '2026-11-03');
+  assert.equal(toISODate('11/14/26', 'MM/dd/yy'), '2026-11-14');
+  assert.equal(toISODate(''), null);
 });
