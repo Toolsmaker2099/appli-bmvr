@@ -16,12 +16,15 @@ test('connexion + prêts avec un portail simulé', async () => {
     if (url.endsWith('settings.js')) return ok('var s = {"apiToken":"TOK"}');
     if (url.includes('connect.xhtml')) return { ok: true, status: 200, headers: { getSetCookie: () => [] } };
     if (url.includes('/authenticate')) return ok({ token: 'SESS' });
-    if (url.includes('/loans')) return ok([{ seqNo: '7', title: 'Dune', author: 'Herbert', returnDate: '14/11/2026', dateFormat: 'dd/MM/yyyy', isRenewable: true, isbn13: '978-2-07-036822-5' }]);
+    if (url.includes('/loans')) return ok([{ seqNo: '7', title: 'Dune', author: 'Herbert', returnDate: '14/11/2026', dateFormat: 'dd/MM/yyyy', isRenewable: true, branch: { desc: 'Alcazar' }, loanDate: '01/11/2026', returnHour: '18:00', prolongation: '0', prolongationMax: '1', isbn13: '978-2-07-036822-5' }]);
     throw new Error('inattendu ' + url);
   };
   const { loans } = await fetchLoans({ username: 'u', password: 'p' }, fake);
   assert.deepEqual(loans.map((l) => [l.title, l.author, l.isbn]), [['Dune', 'Herbert', '9782070368225']]);
   assert.equal(loans[0].coverId, 'p::usmarcdef_0000000007');
+  assert.equal(loans[0].branch, 'Alcazar');
+  assert.equal(loans[0].loanDate, '2026-11-01');
+  assert.equal(loans[0].returnHour, '18:00');
   const auth = calls.find(([u]) => u.includes('/loans'))[1].headers['X-InMedia-Authorization'];
   assert.equal(auth, `Bearer SESS TOK ${checksum('?locale=fr')}`);
   assert.equal(calls.find(([u]) => u.includes('/loans'))[1].headers.Cookie, 'JSESSIONID=abc');

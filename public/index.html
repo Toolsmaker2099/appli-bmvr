@@ -3,43 +3,78 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Ma bibliothèque</title>
+<title>Ma BMVR (non officiel)</title>
+<meta name="description" content="Application personnelle et non officielle pour consulter ses prêts à la BMVR de Marseille.">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="icon-192.png">
 <meta name="theme-color" content="#1f4e5f">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-title" content="BMVR">
+<meta name="apple-mobile-web-app-title" content="BMVR non off.">
 <link rel="stylesheet" href="style.css?v=__VERSION__">
 </head>
 <body>
-<header><h1>Mes prêts</h1><button id="sync" aria-label="Actualiser">↻</button></header>
+<header class="top">
+  <div>
+    <h1 id="title">Accueil</h1>
+    <p class="unofficial">Application non officielle, non affiliée à la BMVR</p>
+  </div>
+  <button id="sync" class="icon-btn" aria-label="Actualiser mes prêts" hidden>↻</button>
+</header>
+
 <main>
-  <section id="setup" hidden>
-    <h2>Connexion à la BMVR</h2>
-    <p class="hint">Vos identifiants restent sur cet appareil et ne sont envoyés au relais que pour lire vos prêts (rien n'y est conservé).</p>
-    <input id="user" placeholder="N° de carte ou identifiant" autocomplete="username">
-    <input id="pass" type="password" placeholder="Mot de passe" autocomplete="current-password">
-    <button id="save">Se connecter</button>
-    <p id="err" class="hint"></p>
+  <!-- ACCUEIL -->
+  <section id="view-accueil" class="view" hidden>
+    <div id="summary" class="hero"></div>
+
+    <h2>Services en ligne</h2>
+    <p class="hint">Un toucher suffit : l'appli vous connecte à la BMVR puis au service.</p>
+    <div class="tiles">
+      <button class="tile service" data-service="mediapart"><span class="ico">📰</span><strong>Mediapart</strong><small>Journal en ligne</small></button>
+      <button class="tile service" data-service="cafeyn"><span class="ico">📖</span><strong>Cafeyn</strong><small>Presse et magazines</small></button>
+    </div>
+    <p id="svcErr" class="hint"></p>
+
+    <h2>Site de la BMVR</h2>
+    <div class="list-links">
+      <a href="https://www.bmvr.marseille.fr/" target="_blank" rel="noopener">🔎 Catalogue et recherche</a>
+      <a href="https://www.bmvr.marseille.fr/" target="_blank" rel="noopener">👤 Mon compte, réservations</a>
+    </div>
   </section>
-  <section id="loans" hidden>
+
+  <!-- PRÊTS -->
+  <section id="view-prets" class="view" hidden>
     <p id="status" class="hint"></p>
-    <ul id="list"></ul>
+    <ul id="list" class="cards"></ul>
+  </section>
+
+  <!-- COMPTE -->
+  <section id="view-compte" class="view" hidden>
+    <div id="loginBox">
+      <h2>Connexion à la BMVR</h2>
+      <p class="hint">Vos identifiants restent sur cet appareil. Ils ne sont envoyés au relais que le temps de lire vos prêts ou de vous connecter à un service, et n'y sont pas conservés.</p>
+      <label>Identifiant<input id="user" placeholder="N° de carte ou e-mail" autocomplete="username"></label>
+      <label>Mot de passe<input id="pass" type="password" placeholder="Mot de passe" autocomplete="current-password"></label>
+      <button id="save" class="primary">Se connecter</button>
+      <p id="err" class="hint err"></p>
+    </div>
+    <div id="accountBox" hidden>
+      <h2>Compte</h2>
+      <p>Connecté en tant que <strong id="who"></strong>.</p>
+      <button id="reset" class="secondary">Se déconnecter et oublier mes identifiants</button>
+    </div>
+    <h2>À propos</h2>
+    <p class="hint">« Ma BMVR » est un projet personnel indépendant. Il n'est ni créé, ni validé, ni soutenu par la Bibliothèque municipale à vocation régionale de Marseille. Les données affichées viennent du portail officiel de la bibliothèque.</p>
     <button id="diag" class="link" hidden>Envoyer un diagnostic</button>
     <pre id="diagOut" hidden></pre>
   </section>
-  <section id="links">
-    <h2>Services en ligne</h2>
-    <p class="hint">Un toucher suffit : l'appli vous connecte à la BMVR puis au service.</p>
-    <a href="https://www.bmvr.marseille.fr/" target="_blank" rel="noopener">Site de la BMVR (compte, catalogue, réservations)</a>
-    <button class="service" data-service="mediapart">Mediapart</button>
-    <button class="service" data-service="marsactu">Marsactu</button>
-    <button class="service" data-service="cafeyn">Cafeyn</button>
-    <p id="svcErr" class="hint"></p>
-  </section>
-  <section id="foot" hidden><button id="reset" class="link">Se déconnecter (oublier mes identifiants)</button></section>
 </main>
+
+<nav class="tabs" aria-label="Navigation">
+  <a href="#accueil" data-tab="accueil"><span>🏠</span>Accueil</a>
+  <a href="#prets" data-tab="prets"><span>📚</span>Mes prêts<b id="badge" hidden></b></a>
+  <a href="#compte" data-tab="compte"><span>👤</span>Compte</a>
+</nav>
 <script src="app.js?v=__VERSION__" type="module"></script>
 </body>
 </html>

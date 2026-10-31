@@ -1,6 +1,6 @@
 # appli-bmvr
 
-PWA personnelle pour la BMVR de Marseille : liste des prêts avec échéances, et accès en un clic à Mediapart, Marsactu et Cafeyn.
+Application web installable (PWA), **non officielle**, pour la BMVR de Marseille : liste détaillée des prêts avec échéances, et accès en un toucher à Mediapart et Cafeyn. Les prêts ne se chargent que dans leur onglet. (Marsactu est mis de côté pour plus tard.)
 
 - `public/` : l'appli (statique, publiée sur GitHub Pages).
 - `wrangler.toml` + `worker/` : un petit relais Cloudflare Workers (gratuit) qui lit tes prêts sur le portail. Le portail n'autorise pas les appels directs depuis un autre site, d'où ce relais.

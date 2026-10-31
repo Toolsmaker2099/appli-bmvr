@@ -1,11 +1,12 @@
 {
-  "name": "Ma bibliothèque BMVR",
-  "short_name": "BMVR",
+  "name": "Ma BMVR (non officiel)",
+  "short_name": "BMVR non off.",
+  "description": "Application personnelle et non officielle pour la BMVR de Marseille.",
   "lang": "fr",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
-  "background_color": "#faf7f2",
+  "background_color": "#f6f2ea",
   "theme_color": "#1f4e5f",
   "icons": [
     { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },

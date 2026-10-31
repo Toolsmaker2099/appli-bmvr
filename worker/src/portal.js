@@ -150,19 +150,44 @@ export function toISODate(v, fmt) {
 }
 
 // Le portail renvoie la liste directement : [{ title, author, returnDate, dateFormat, seqNo, isLate, isRenewable, … }].
+// On garde toutes les informations utiles à l'affichage.
 export function parseLoans(loans) {
   const items = Array.isArray(loans) ? loans : loans?.items ?? [];
+  const text = (v) => (v == null ? '' : String(v).trim());
   return items
-    .map((it, i) => ({
-      id: String(it.seqNo ?? it.documentNumber ?? i),
-      title: String(it.title ?? it.documentTitle ?? 'Document').trim(),
-      author: String(it.author ?? '').trim(),
-      dueDate: toISODate(it.returnDate ?? it.dateDue ?? it.dueDate, it.dateFormat),
-      renewable: it.isRenewable ?? null,
-      // Identifiant de notice du portail (même règle que son appli web) → image de couverture publique du portail.
-      coverId: /^\d{1,10}$/.test(String(it.seqNo ?? '')) ? `p::usmarcdef_${String(it.seqNo).padStart(10, '0')}` : '',
-      isbn: String(it.isbn13 || it.isbn10 || it.isbn || '').replace(/[^0-9Xx]/g, ''),
-    }))
+    .map((it, i) => {
+      const f = it.dateFormat;
+      return {
+        id: String(it.seqNo ?? it.documentNumber ?? i),
+        title: text(it.title ?? it.documentTitle) || 'Document',
+        author: text(it.author),
+        loanDate: toISODate(it.loanDate, f),
+        dueDate: toISODate(it.returnDate ?? it.dateDue ?? it.dueDate, f),
+        returnHour: text(it.returnHour),
+        branch: text(it.branch?.desc),
+        late: !!it.isLate,
+        renewable: it.isRenewable ?? null,
+        renewalCondition: text(it.renewalCondition),
+        renewalMessage: text(it.renewalConditionMessage),
+        prolongation: text(it.prolongation),
+        prolongationMax: text(it.prolongationMax),
+        userRenewed: !!it.userRenewed,
+        canChangeDueDate: !!it.canChangeDueDate,
+        recalled: !!it.recalled,
+        reserved: !!it.reserved,
+        lost: !!it.lost,
+        hasCharge: !!it.hasCharge,
+        copyProblem: !!it.copyProblem,
+        lateNotices: it.nbLateNoticeSent ? Number(it.nbLateNoticeSent) : 0,
+        lateNoticeDates: (it.lateNoticeDates ?? []).map((d) => toISODate(d, f)).filter(Boolean),
+        documentNumber: text(it.documentNumber),
+        issueCaption: text(it.issueCaption),
+        volume: text(it.volume),
+        // Identifiant de notice du portail (même règle que son appli web) → image de couverture publique du portail.
+        coverId: /^\d{1,10}$/.test(String(it.seqNo ?? '')) ? `p::usmarcdef_${String(it.seqNo).padStart(10, '0')}` : '',
+        isbn: text(it.isbn13 || it.isbn10 || it.isbn).replace(/[^0-9Xx]/g, ''),
+      };
+    })
     .filter((l) => l.dueDate)
     .sort((a, b) => a.dueDate.localeCompare(b.dueDate));
 }
