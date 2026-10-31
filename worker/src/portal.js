@@ -59,7 +59,7 @@ function makeClient(fetchFn) {
     },
     // Suit les redirections d'un service en ligne (CAS) avec la session de la personne, et s'arrête juste avant d'ouvrir
     // l'adresse finale du service : elle contient un ticket à usage unique que le navigateur de la personne utilisera.
-    async serviceUrl(startUrl) {
+    async serviceUrl(startUrl, trace = []) {
       let url = startUrl;
       let cameFromBmvr = false;
       for (let hop = 0; hop < 10; hop++) {
@@ -70,6 +70,7 @@ function makeClient(fetchFn) {
         const loc = res.headers.get('Location');
         if (!loc || res.status < 300 || res.status > 399) throw new Error(`Service : pas de redirection (HTTP ${res.status})`);
         const next = new URL(loc, url).toString();
+        { const n = new URL(next); trace.push(`${res.status} ${host} → ${n.host}${n.pathname} [${[...n.searchParams.keys()].join(',')}]`); }
         if (isBmvr && new URL(next).host !== BMVR_HOST) return next;
         if (isBmvr && /\/login(\?|$)/.test(new URL(next).pathname) && new URL(next).host === BMVR_HOST && hop > 0) throw new Error('Service : la BMVR ne reconnaît pas la session');
         cameFromBmvr = cameFromBmvr || isBmvr;
@@ -235,7 +236,7 @@ export const SERVICES = {
 };
 
 // Connexion à la BMVR puis adresse d'entrée (avec ticket) du service demandé.
-export async function fetchServiceUrl({ username, password }, service, fetchFn = fetch) {
+export async function fetchServiceUrl({ username, password }, service, fetchFn = fetch, trace = []) {
   const start = SERVICES[service];
   if (!start) throw new Error('Service inconnu');
   const c = makeClient(fetchFn);
@@ -243,5 +244,6 @@ export async function fetchServiceUrl({ username, password }, service, fetchFn =
   const session = await c.post(null, 'authenticate', { username: username.includes('@') ? username.toLowerCase() : username, password, locale: 'fr' });
   if (!session.token) throw new AuthError(`Connexion refusée : ${session.error || 'identifiants incorrects ?'}`);
   await c.connect();
-  return c.serviceUrl(start);
+  trace.push(`session ${c.cookieNames().join('+')}`);
+  return c.serviceUrl(start, trace);
 }

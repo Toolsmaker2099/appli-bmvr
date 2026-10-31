@@ -99,11 +99,12 @@ document.querySelectorAll('.service').forEach((btn) => {
     try {
       const r = await fetch(RELAY + '/service', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: user, password: pass, service: btn.dataset.service }) });
       const data = await r.json();
+      store.set('lastTrace', (data.trace || []).join('\n'));
       if (!r.ok) throw new Error(data.error || 'HTTP ' + r.status);
       // Même fenêtre : depuis une appli installée, un nouvel onglet partirait dans le navigateur par défaut du téléphone.
       location.assign(data.url);
     } catch (e) {
-      $('svcErr').textContent = label + ' : ' + e.message;
+      $('svcErr').textContent = label + ' : ' + e.message + '\n' + store.get('lastTrace');
     } finally { btn.disabled = false; btn.textContent = label; }
   };
 });

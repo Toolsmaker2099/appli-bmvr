@@ -25,7 +25,10 @@ export default {
     }
 
     try {
-      if (url.pathname === '/service') return json({ url: await fetchServiceUrl({ username, password }, body.service) }, 200, cors);
+      if (url.pathname === '/service') {
+        const trace = [];
+        try { return json({ url: await fetchServiceUrl({ username, password }, body.service, fetch, trace), trace }, 200, cors); } catch (e) { return json({ error: e.message, trace }, e instanceof AuthError ? 401 : 502, cors); }
+      }
       if (body.diagnostic === true) return json(await diagnose({ username, password }), 200, cors);
       const r = await fetchLoans({ username, password }, fetch, body.debug === true);
       return json({ ...r, fetchedAt: new Date().toISOString() }, 200, cors);
