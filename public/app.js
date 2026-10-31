@@ -80,6 +80,40 @@ function cover(l) {
   return img;
 }
 
+// ---------- prolongation ----------
+const RENEW_WARNINGS = {
+  IMPOSSIBLE_TO_RENEW_PRIOR_TO_DUEDATE: 'Impossible de prolonger : la nouvelle date serait antérieure à la date de retour actuelle.',
+  IMPOSSIBLE_TO_RENEW_ACCOUNT_EXPIRED: "Impossible de prolonger : l'abonnement est expiré.",
+};
+
+function renewButton(l) {
+  const wrap = el('div', 'actions');
+  const btn = el('button', 'primary renew', 'Prolonger ce prêt');
+  const msg = el('p', 'hint renew-msg');
+  btn.onclick = async () => {
+    if (!confirm(`Prolonger « ${l.title} » ?\nCette action modifie votre compte à la bibliothèque.`)) return;
+    btn.disabled = true; btn.textContent = 'Prolongation…'; msg.textContent = '';
+    try {
+      const r = await fetch(RELAY + '/renew', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: store.get('user'), password: store.get('pass'), documentId: l.documentNumber }) });
+      const data = await r.json();
+      if (!r.ok) throw new Error(data.error || 'HTTP ' + r.status);
+      if (data.extended) {
+        msg.textContent = data.newReturnDate ? `✓ Prolongé : nouvelle date de retour le ${longDate(data.newReturnDate)}.` : '✓ Prêt prolongé.';
+        msg.className = 'hint renew-msg ok';
+        store.del('cache');
+        setTimeout(openLoans, 1500);
+      } else {
+        throw new Error(data.warnings.map((w) => RENEW_WARNINGS[w]).filter(Boolean).join(' ') || data.message || 'La bibliothèque a refusé la prolongation.');
+      }
+    } catch (e) {
+      msg.textContent = e.message; msg.className = 'hint renew-msg err';
+      btn.disabled = false; btn.textContent = 'Prolonger ce prêt';
+    }
+  };
+  wrap.append(btn, msg);
+  return wrap;
+}
+
 // ---------- carte de prêt ----------
 function rows(entries) {
   const dl = el('dl');
@@ -105,9 +139,9 @@ function card(l) {
   if (l.late && d >= 0) chip('Marqué en retard', 'bad');
   if (l.recalled) chip('Rappelé par la bibliothèque', 'bad');
   if (l.lost) chip('Déclaré perdu', 'bad');
-  if (l.renewable === true) chip('✓ Prolongeable', 'good');
-  else if (l.renewable === false) chip('Non prolongeable', 'warn');
-  if (l.userRenewed) chip('Déjà prolongé', '');
+  if (l.canRenew) chip('✓ Prolongeable', 'good');
+  else if (l.userRenewed) chip('Déjà prolongé', '');
+  else chip('Non prolongeable', 'warn');
   if (l.reserved) chip('Réservé par un autre lecteur', 'warn');
   if (l.hasCharge) chip('Frais en cours', 'bad');
   if (l.copyProblem) chip("Problème d'exemplaire", 'warn');
@@ -122,6 +156,7 @@ function card(l) {
     ['Prolongations', prol],
   ]);
   if (main) li.append(main);
+  if (l.canRenew) li.append(renewButton(l));
 
   const more = rows([
     ['Prolongation', l.renewalMessage || l.renewalCondition],

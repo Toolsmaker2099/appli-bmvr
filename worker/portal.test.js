@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { checksum, fetchLoans, fetchServiceUrl, parseLoans, toISODate } from './src/portal.js';
+import { checksum, fetchLoans, fetchServiceUrl, renewLoan, parseLoans, toISODate, cleanTitle, cleanAuthor } from './src/portal.js';
 
 test('somme de contrôle identique à celle du portail', () => {
   // 305419896 + 'a'(97)*1 + 'b'(98)*2
@@ -60,4 +60,41 @@ test('service : suit le CAS et renvoie l\'adresse du service avec son ticket san
   const u = await fetchServiceUrl({ username: 'u', password: 'p' }, 'cafeyn', fake);
   assert.equal(u, 'https://api.cafeyn.co/users/login/external/648?ticket=ST-1');
   assert.ok(!seen.some((x) => x.includes('ticket=')), 'le ticket ne doit pas être consommé par le relais');
+});
+
+test('titres et auteurs nettoyés', () => {
+  assert.equal(cleanTitle('Les étoiles du football[ Texte imprimé : les meilleurs joueurs de la planète foot / Rodolphe Gaudin'), 'Les étoiles du football : les meilleurs joueurs de la planète foot');
+  assert.equal(cleanTitle("L'encyclopédie du taekwondo. I Toutes les techniques[ Texte imprimé / G. M. Rémi Mollet"), "L'encyclopédie du taekwondo. I Toutes les techniques");
+  assert.equal(cleanTitle('Dune'), 'Dune');
+  assert.equal(cleanAuthor('Gaudin, Rodolphe 1975-....'), 'Rodolphe Gaudin');
+  assert.equal(cleanAuthor('Mollet, Rémi 1960-....'), 'Rémi Mollet');
+  assert.equal(cleanAuthor('Hugo, Victor (1802-1885)'), 'Victor Hugo');
+});
+
+test('règle de prolongation et message technique masqué', () => {
+  const [a, b] = parseLoans([
+    { seqNo: '1', title: 'A', returnDate: '2026-11-26', renewalCondition: 'OK', renewalConditionMessage: 'globalErrorLeg_list.OK', returnHour: '19:00:00', userRenewed: false },
+    { seqNo: '2', title: 'B', returnDate: '2026-11-27', renewalCondition: 'OK', userRenewed: true },
+  ]);
+  assert.equal(a.canRenew, true);
+  assert.equal(a.renewalMessage, '');
+  assert.equal(a.returnHour, '19:00');
+  assert.equal(b.canRenew, false);
+});
+
+test('prolongation : appel renewLoan avec le numéro de document', async () => {
+  const calls = [];
+  const fake = async (url) => {
+    calls.push(url);
+    const ok = (b) => ({ ok: true, status: 200, headers: { getSetCookie: () => [], get: () => null }, json: async () => b, text: async () => b });
+    if (url.endsWith('settings.js')) return ok('{"apiToken":"TOK"}');
+    if (url.includes('/authenticate')) return ok({ token: 'SESS' });
+    if (url.includes('connect.xhtml')) return { ok: true, status: 201, headers: { getSetCookie: () => [] } };
+    if (url.includes('/renewLoan')) return ok({ extended: true, newReturnDate: '2026-12-24' });
+    throw new Error('inattendu ' + url);
+  };
+  const r = await renewLoan({ username: 'u', password: 'p' }, 'DX2029', fake);
+  assert.deepEqual([r.extended, r.newReturnDate], [true, '2026-12-24']);
+  assert.ok(calls.some((u) => u.includes('renewLoan?documentId=DX2029')));
+  await assert.rejects(() => renewLoan({ username: 'u', password: 'p' }, '../x', fake));
 });

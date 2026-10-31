@@ -149,6 +149,24 @@ export function toISODate(v, fmt) {
   return isNaN(d) ? null : d.toISOString().slice(0, 10);
 }
 
+// Titre de notice → titre lisible : « Titre[ Texte imprimé : sous-titre / Auteur » devient « Titre : sous-titre ».
+export function cleanTitle(t) {
+  let s = String(t ?? '').replace(/\s*\[\s*(?:Texte imprimé|Texte manuscrit|Document[^\]:/]*|Enregistrement[^\]:/]*|Vidéo[^\]:/]*|Multimédia[^\]:/]*|Ressource[^\]:/]*|Image[^\]:/]*|Musique imprimée|Partition|Carte[^\]:/]*|Objet[^\]:/]*)\s*\]?/i, '');
+  s = s.replace(/\s*\/\s+.*$/, '').replace(/(\S)\s*:\s+/g, '$1 : ');
+  return s.replace(/\s+/g, ' ').replace(/[\s.:;,/]+$/, '').trim();
+}
+
+// « Gaudin, Rodolphe 1975-.... » → « Rodolphe Gaudin »
+export function cleanAuthor(a) {
+  let s = String(a ?? '').replace(/\s*\(?\d{3,4}\s*-\s*(?:\d{0,4})?\.*\)?\.*\s*$/, '').replace(/[\s.,;]+$/, '').trim();
+  const m = s.match(/^([^,]+),\s*(.+)$/);
+  return m ? `${m[2]} ${m[1]}`.trim() : s;
+}
+
+// Le portail renvoie parfois des clés de traduction (« globalErrorLeg_list.OK ») : on ne garde que du texte lisible.
+const readable = (v) => (/\s/.test(v) && !/^[\w.]+$/.test(v) ? v : '');
+const hhmm = (h) => String(h ?? '').trim().replace(/^(\d{1,2}:\d{2}):\d{2}$/, '$1');
+
 // Le portail renvoie la liste directement : [{ title, author, returnDate, dateFormat, seqNo, isLate, isRenewable, … }].
 // On garde toutes les informations utiles à l'affichage.
 export function parseLoans(loans) {
@@ -159,16 +177,16 @@ export function parseLoans(loans) {
       const f = it.dateFormat;
       return {
         id: String(it.seqNo ?? it.documentNumber ?? i),
-        title: text(it.title ?? it.documentTitle) || 'Document',
-        author: text(it.author),
+        title: cleanTitle(it.title ?? it.documentTitle) || 'Document',
+        author: cleanAuthor(it.author),
         loanDate: toISODate(it.loanDate, f),
         dueDate: toISODate(it.returnDate ?? it.dateDue ?? it.dueDate, f),
-        returnHour: text(it.returnHour),
+        returnHour: hhmm(it.returnHour),
         branch: text(it.branch?.desc),
         late: !!it.isLate,
-        renewable: it.isRenewable ?? null,
-        renewalCondition: text(it.renewalCondition),
-        renewalMessage: text(it.renewalConditionMessage),
+        // Règle de l'appli web du portail : prolongeable si la condition vaut « OK » et que le prêt n'a pas déjà été prolongé par le lecteur.
+        canRenew: text(it.renewalCondition).toUpperCase() === 'OK' && !it.userRenewed && it.isRenewable !== false,
+        renewalMessage: readable(text(it.renewalConditionMessage)),
         prolongation: text(it.prolongation),
         prolongationMax: text(it.prolongationMax),
         userRenewed: !!it.userRenewed,
@@ -271,4 +289,22 @@ export async function fetchServiceUrl({ username, password }, service, fetchFn =
   await c.connect();
   trace.push(`session ${c.cookieNames().join('+')}`);
   return c.serviceUrl(start, trace);
+}
+
+// Prolongation d'un prêt (même appel que le bouton « Prolonger » du portail). documentId = numéro de document du prêt.
+export async function renewLoan({ username, password }, documentId, fetchFn = fetch) {
+  if (!/^[A-Za-z0-9_-]{1,40}$/.test(documentId ?? '')) throw new Error('Document invalide');
+  const c = makeClient(fetchFn);
+  await c.init();
+  const session = await c.post(null, 'authenticate', { username: username.includes('@') ? username.toLowerCase() : username, password, locale: 'fr' });
+  if (!session.token) throw new AuthError(`Connexion refusée : ${session.error || 'identifiants incorrects ?'}`);
+  await c.connect();
+  const r = await c.get(session.token, 'renewLoan', { documentId });
+  const f = r.faultString || '';
+  return {
+    extended: r.extended === true,
+    newReturnDate: toISODate(r.newReturnDate),
+    warnings: Array.isArray(r.warnings) ? r.warnings : [],
+    message: r.errorReponse ? String(r.error || '') : f,
+  };
 }

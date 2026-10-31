@@ -1,4 +1,4 @@
-import { fetchLoans, fetchServiceUrl, diagnose, AuthError } from './portal.js';
+import { fetchLoans, fetchServiceUrl, renewLoan, diagnose, AuthError } from './portal.js';
 
 // Relais multi-utilisateurs sans état : l'appli envoie les identifiants BMVR de la personne à chaque requête (HTTPS),
 // le relais s'en sert pour interroger le portail puis les oublie. Rien n'est stocké ni journalisé.
@@ -14,7 +14,7 @@ export default {
     if (req.method === 'OPTIONS') return new Response(null, { status: ok ? 204 : 403, headers: cors });
 
     const url = new URL(req.url);
-    if (req.method !== 'POST' || (url.pathname !== '/loans' && url.pathname !== '/service')) return json({ error: 'introuvable' }, 404, cors);
+    if (req.method !== 'POST' || !['/loans', '/service', '/renew'].includes(url.pathname)) return json({ error: 'introuvable' }, 404, cors);
     if (!ok) return json({ error: 'origine non autorisée' }, 403, cors);
 
     let body;
@@ -25,6 +25,7 @@ export default {
     }
 
     try {
+      if (url.pathname === '/renew') return json(await renewLoan({ username, password }, body.documentId), 200, cors);
       if (url.pathname === '/service') {
         const trace = [];
         try { return json({ url: await fetchServiceUrl({ username, password }, body.service, fetch, trace), trace }, 200, cors); } catch (e) { return json({ error: e.message, trace }, e instanceof AuthError ? 401 : 502, cors); }

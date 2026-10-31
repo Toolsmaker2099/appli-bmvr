@@ -43,7 +43,7 @@ button{font:inherit;cursor:pointer}
 .cover{width:64px;height:92px;object-fit:cover;border-radius:8px;background:var(--chip);flex:none}
 .cover-ph{width:64px;height:92px;border-radius:8px;background:var(--chip);flex:none;display:grid;place-items:center;font-size:1.6rem}
 .card-title{flex:1;min-width:0}
-.card-title h3{margin:0;font-size:1.05rem;line-height:1.25;overflow-wrap:anywhere}
+.card-title h3{margin:0;font-size:.98rem;line-height:1.25;overflow-wrap:anywhere}
 .card-title p{margin:3px 0 0;color:var(--muted);font-size:.9rem}
 .due{display:inline-block;margin-top:8px;padding:4px 10px;border-radius:999px;font-weight:700;font-size:.85rem;background:color-mix(in srgb,var(--ok) 16%,transparent);color:var(--ok)}
 .soon .due{background:color-mix(in srgb,var(--warn) 16%,transparent);color:var(--warn)}
@@ -65,3 +65,4 @@ details dl{padding-top:2px}
 .tabs a.on{color:var(--accent);font-weight:700}
 .tabs b{position:absolute;top:4px;left:calc(50% + 6px);min-width:18px;height:18px;border-radius:9px;background:var(--late);color:#fff;font-size:.7rem;display:grid;place-items:center;padding:0 5px}
 pre{white-space:pre-wrap;word-break:break-word;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px;font-size:.75rem;user-select:all}
+.actions{padding:0 14px 14px}.actions .primary{margin-top:0}.renew-msg{margin:8px 0 0}.renew-msg.ok{color:var(--ok);font-weight:600}
