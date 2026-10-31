@@ -662,6 +662,17 @@ export function parseMessages(res) {
   });
 }
 
+export async function deleteMessage(creds, messageId, fetchFn = fetch) {
+  const id = String(messageId ?? '').split('|')[0];
+  if (!/^[A-Za-z0-9_.:-]{1,60}$/.test(id)) throw new Error('Message invalide');
+  const { c, token } = await login(creds, fetchFn);
+  const r = await c.post(token, 'deleteMessage', { messageId: id });
+  if (r?.faultString || r?.error) throw new Error('Suppression refusée : ' + String(r.faultString || r.error).slice(0, 160));
+  const left = parseMessages(await c.get(token, 'messages', { locale: 'fr' }).catch(() => ({ items: [] })));
+  if (left.some((m) => m.id.split('|')[0] === id)) throw new Error('Le portail n\'a pas supprimé ce message.');
+  return { ok: true };
+}
+
 export async function fetchAccount(creds, kind, fetchFn = fetch, debug = false) {
   const { c, token } = await login(creds, fetchFn);
   if (kind === 'profile') {

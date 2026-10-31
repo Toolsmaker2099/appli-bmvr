@@ -73,9 +73,10 @@ function renderSummary() {
   if (!hasCreds()) {
     box.append(el('strong', '', 'Bienvenue'), el('p', '', 'Connectez votre compte BMVR pour retrouver vos prêts et accéder aux services en ligne.'));
     const a = el('a', '', 'Se connecter →'); a.href = '#compte'; box.append(a);
+    $('msgCard').hidden = true;
     return;
   }
-  if (!data) { const a = el('a', '', 'Voir mes prêts →'); a.href = '#prets'; box.append(el('strong', '', 'Vos prêts'), a); renderMsgLine(box); return; }
+  if (!data) { const a = el('a', '', 'Voir mes prêts →'); a.href = '#prets'; box.append(el('strong', '', 'Vos prêts'), a); renderMsgLine(); return; }
   const n = data.loans.length;
   const late = data.loans.filter((l) => daysLeft(l.dueDate) < 0).length;
   box.append(el('strong', '', n ? `${n} prêt${n > 1 ? 's' : ''} en cours` : 'Aucun prêt en cours'));
@@ -84,16 +85,16 @@ function renderSummary() {
     box.append(el('p', '', late ? `⚠ ${late} en retard · ${rel(daysLeft(next.dueDate))}` : `Prochain retour : ${rel(daysLeft(next.dueDate)).toLowerCase().replace('à rendre ', '')} (${shortDate(next.dueDate)})`));
   }
   const a = el('a', '', 'Voir mes prêts →'); a.href = '#prets'; box.append(a);
-  renderMsgLine(box);
+  renderMsgLine();
 }
-function renderMsgLine(box) {
-  const line = el('p', 'msg-line'); box.append(line);
+function renderMsgLine() {
+  const line = $('msgCard');
   const draw = () => {
-    const c = readMsgCache(); if (!c) { line.textContent = ''; return; }
+    const c = readMsgCache(); if (!c || !hasCreds()) { line.hidden = true; return; }
+    line.hidden = false;
     const n = c.items.length, u = unseenCount(c.items);
     line.replaceChildren();
-    const a = el('a', '', n ? `✉️ ${n} message${n > 1 ? 's' : ''}${u ? ` · ${u} nouveau${u > 1 ? 'x' : ''}` : ''}` : '✉️ Aucun message'); a.href = '#espace/messages';
-    if (u) a.className = 'new';
+    const a = el('a', u ? 'new' : '', n ? `✉️ ${n} message${n > 1 ? 's' : ''}${u ? ` · ${u} nouveau${u > 1 ? 'x' : ''}` : ''}` : '✉️ Aucun message'); a.href = '#espace/messages';
     line.append(a);
   };
   draw();
@@ -630,6 +631,20 @@ async function openEspace(kind) {
     for (const it of items) {
       const li = plainCard(it);
       if (seen && !seen.has(it.id)) { li.classList.add('unread'); const h = li.querySelector('h3'); if (h) h.before(el('span', 'chip good new-chip', 'Nouveau')); }
+      if (espaceKind === 'messages') {
+        const del = el('button', 'link danger', 'Supprimer ce message');
+        del.onclick = async () => {
+          if (!confirm('Supprimer ce message définitivement ?')) return;
+          del.disabled = true; del.textContent = 'Suppression…';
+          try {
+            await call('/delete-message', { id: it.id });
+            li.remove();
+            const c = readMsgCache(); if (c) { c.items = c.items.filter((m) => m.id !== it.id); store.set('msgCache', JSON.stringify(c)); }
+            updateEspaceBadge();
+          } catch (e) { del.disabled = false; del.textContent = 'Supprimer ce message'; alert(e.message); }
+        };
+        li.append(del);
+      }
       ul.append(li);
     }
     if (seen) { items.forEach((it) => seen.add(it.id)); saveSeen(seen); store.set('msgCache', JSON.stringify({ at: Date.now(), items: items.map((m) => ({ id: m.id, title: m.title, date: m.date })) })); updateEspaceBadge(); }
