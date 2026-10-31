@@ -29,4 +29,4 @@ La lecture des prêts reproduit les appels du portail sans avoir pu être testé
 `cd worker && npm test`
 
 ## Mises à jour
-L'appli se met à jour seule : à chaque ouverture (ou retour sur l'appli), elle cherche une nouvelle version et se recharge si elle en trouve une. À chaque publication, incrémenter le numéro de version dans `public/sw.js` (`CACHE`) et le `?v=` dans `public/index.html`.
+L'appli se met à jour seule : à chaque ouverture (ou retour sur l'appli), elle cherche une nouvelle version et se recharge si elle en trouve une. Le numéro de version du cache est posé automatiquement à chaque publication (numéro du commit, via `__VERSION__` dans `public/sw.js` et `public/index.html`) : rien à incrémenter à la main.

@@ -1,6 +1,6 @@
-// Changer ce numéro à chaque publication déclenche la mise à jour automatique chez les utilisateurs.
-const CACHE = 'bmvr-v3';
-const SHELL = ['./', 'app.js?v=3', 'style.css?v=3', 'manifest.webmanifest', 'icon.svg'];
+// __VERSION__ est remplacé automatiquement par le numéro du commit à la publication (voir .github/workflows/pages.yml).
+const CACHE = 'bmvr-__VERSION__';
+const SHELL = ['./', 'app.js?v=__VERSION__', 'style.css?v=__VERSION__', 'manifest.webmanifest', 'icon.svg'];
 
 self.addEventListener('install', (e) => e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting())));
 self.addEventListener('activate', (e) => e.waitUntil(caches.keys().then((ks) => Promise.all(ks.filter((k) => k !== CACHE).map((k) => caches.delete(k)))).then(() => self.clients.claim())));
