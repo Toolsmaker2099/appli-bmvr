@@ -456,9 +456,10 @@ function searchCard(item) {
   if (chips.children.length) li.append(chips);
   if (item.copies?.length) {
     const ex = el('details', 'notice copies');
-    ex.append(el('summary', '', `Exemplaires par bibliothèque (${item.copies.length})`));
     const by = new Map();
     for (const c of item.copies) { const k = c.branch || 'Bibliothèque'; if (!by.has(k)) by.set(k, []); by.get(k).push(c); }
+    const nb = [...by.values()].filter((l) => l.some((x) => x.available)).length;
+    ex.append(el('summary', '', nb ? `📍 Où l'emprunter · disponible dans ${nb} bibliothèque${nb > 1 ? 's' : ''}` : '📍 Où le trouver · aucun exemplaire disponible'));
     const box = el('div', 'copy-list');
     for (const [name, list] of [...by].sort((a, b) => b[1].filter((x) => x.available).length - a[1].filter((x) => x.available).length || a[0].localeCompare(b[0], 'fr'))) {
       const n = list.filter((x) => x.available).length;
