@@ -403,28 +403,31 @@ export function parseSearch(res) {
     const fields = [];
     const seen = new Set();
     const add = (label, vals) => { const v = [...new Set(vals)].join(' · ').slice(0, 600); if (v && !seen.has(label + v)) { seen.add(label + v); fields.push([label, v]); } };
-    // Comme la carte du site officiel : les lignes « Auteurs / Éditeurs / Date / Type de document » viennent de la section meta
-    // du portail. Les intitulés sont toujours écrits en français ici ; un champ inconnu n'est pas affiché.
+    // Comme la carte du site officiel : auteur / éditeur / date viennent de « meta » (meta.author, meta.publisher…), le type de
+    // « TypeOfDocumentFacet ». Les intitulés sont toujours écrits en français ici ; un champ inconnu n'est pas affiché.
     const FR = [
       [/^(authors?|creators?|auteurs?)$/i, 'Auteurs'], [/^(publishers?|editors?|[ée]diteurs?)$/i, 'Éditeurs'],
-      [/^(date|year|publicationDate|datePublished)$/i, 'Date'], [/^(type|typeOfDocument\w*|contentType|docType|format|support)$/i, 'Type de document'],
+      [/^(date|year|publicationDate|datePublished|dateOfPublication|pubDate|annee)$/i, 'Date'],
+      [/^(type|typeOfDocument\w*|contentType|docType|support)$/i, 'Type de document'],
       [/^(language|langues?)$/i, 'Langue'], [/^(subjects?|topics?|sujets?)$/i, 'Sujets'], [/^genres?$/i, 'Genre'],
       [/^collections?$/i, 'Collection'], [/^series$/i, 'Série'], [/^(summary|abstract|r[ée]sum[ée])$/i, 'Résumé'],
       [/^(physicalDescription|description)$/i, 'Description'], [/^edition$/i, 'Édition'], [/^(isbn\w*)$/i, 'ISBN'],
     ];
     const frLabel = (k) => FR.find(([re]) => re.test(k))?.[1] ?? null;
-    // Les champs descriptifs arrivent soit dans un objet « meta », soit en clés « meta.xxx » à plat.
     const metaEntries = [...Object.entries(e.meta ?? {}), ...Object.entries(e).filter(([k]) => k.startsWith('meta.')).map(([k, v]) => [k.slice(5), v])];
-    for (const [k, arr] of metaEntries) {
+    const topEntries = Object.entries(e).filter(([k]) => !k.startsWith('meta.') && k !== 'meta');
+    const valuesOf = (arr) => flat(Array.isArray(arr) ? arr.map((x) => (x && typeof x === 'object' && 'value' in x ? x.value : x)) : arr);
+    for (const [k, arr] of [...metaEntries, ...topEntries]) {
       const own = Array.isArray(arr) && typeof arr[0]?.label === 'string' ? arr[0].label.replace(/\s*:\s*$/, '').trim() : '';
-      const label = frLabel(k) || (own && !/^[a-z_.]+$/.test(own) && own.length < 40 ? own : null); // intitulé du portail (demandé en français)
+      const label = frLabel(k) || (metaEntries.some(([mk]) => mk === k) && own && !/^[a-z_.]+$/i.test(own) && own.length < 40 ? own : null);
       if (!label) continue;
-      add(label, (label === 'Auteurs' ? (vs) => vs.map(cleanAuthor) : (vs) => vs)(flat(Array.isArray(arr) ? arr.map((x) => (x && typeof x === 'object' && 'value' in x ? x.value : x)) : arr)));
+      let vals = valuesOf(arr);
+      if (label === 'Auteurs') vals = vals.map(cleanAuthor);
+      if (label === 'Date') vals = vals.map((v) => (/^\d{4}/.test(v) ? v.slice(0, 4) : v));
+      add(label, vals);
     }
-    for (const k of ['author', 'publisher', 'date', 'typeOfDocumentFacet', 'language', 'subject', 'genre', 'collection', 'summary', 'physicalDescription', 'edition', 'isbn']) {
-      const label = frLabel(k);
-      if (e[k] != null && label && !fields.some(([l]) => l === label)) add(label, flat(e[k]));
-    }
+    const ORDER = ['Auteurs', 'Éditeurs', 'Date', 'Type de document'];
+    fields.sort((x, y) => { const i = ORDER.indexOf(x[0]), j = ORDER.indexOf(y[0]); return (i < 0 ? 99 : i) - (j < 0 ? 99 : j); });
     // Disponibilité : « Document disponible dans un des établissements du réseau » sur le site.
     const st = e.physicalStock;
     let availability = '';
