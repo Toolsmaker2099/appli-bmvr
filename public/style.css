@@ -98,3 +98,8 @@ pre{white-space:pre-wrap;word-break:break-word;background:var(--card);border:1px
 .menu .m-txt{flex:1;display:flex;flex-direction:column}.menu small{color:var(--muted);margin-top:2px}.menu .m-go{color:var(--muted);font-size:1.4rem}
 .menu-who{display:flex;align-items:center;gap:12px;margin:0 0 14px;color:var(--muted)}
 .menu-who .avatar{width:40px;height:40px;border-radius:50%;background:var(--accent);color:var(--accent-fg);display:grid;place-items:center;font-weight:700}
+
+.empty{list-style:none;text-align:center;padding:28px 16px;color:var(--muted)}
+.empty-ico{display:grid;place-items:center;width:52px;height:52px;margin:0 auto 10px;border-radius:50%;background:var(--chip);font-size:1.5rem}
+.empty strong{display:block;color:var(--fg);font-size:1rem;font-weight:600}
+.empty p{margin:4px auto 0;max-width:28ch;font-size:.88rem;line-height:1.35}

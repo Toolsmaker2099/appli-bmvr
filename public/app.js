@@ -11,6 +11,19 @@ const store = {
 const hasCreds = () => !!(store.get('user') && store.get('pass'));
 const readCache = () => { try { return JSON.parse(store.get('cache') || 'null'); } catch { return null; } };
 
+// ---------- état vide : discret et compact ----------
+function emptyState(icon, title, text) {
+  const li = el('li', 'empty');
+  li.append(el('span', 'empty-ico', icon), el('strong', '', title));
+  if (text) li.append(el('p', '', text));
+  return li;
+}
+const EMPTY = {
+  fines: ['✅', 'Aucune amende', 'Votre compte est à jour.'],
+  messages: ['✉️', 'Aucun message', 'Les avis de la bibliothèque apparaîtront ici.'],
+  loanhistory: ['🕘', 'Historique vide', 'Vos prêts terminés apparaîtront ici.'],
+};
+
 // ---------- dates ----------
 const today = () => new Date(new Date().toDateString());
 const parse = (iso) => new Date(iso + 'T00:00:00');
@@ -185,7 +198,7 @@ function renderLoans(data, note = '') {
   const list = $('list');
   list.replaceChildren();
   if (!data.loans.length) {
-    const li = el('li', 'hero'); li.append(el('strong', '', 'Aucun prêt en cours'), el('p', '', 'Vos emprunts apparaîtront ici.')); list.append(li);
+    list.append(emptyState('📚', 'Aucun prêt en cours', 'Vos emprunts apparaîtront ici.'));
   }
   for (const l of data.loans) list.append(card(l));
   $('status').textContent = `${data.loans.length} prêt${data.loans.length > 1 ? 's' : ''} · mis à jour ${new Date(data.fetchedAt).toLocaleString('fr-FR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}${note}`;
@@ -275,7 +288,7 @@ function resaCard(r) {
 function renderResa(data, note = '') {
   const list = $('resaList');
   list.replaceChildren();
-  if (!data.reservations.length) { const li = el('li', 'hero'); li.append(el('strong', '', 'Aucune réservation'), el('p', '', 'Cherchez un document dans l’onglet Chercher pour le réserver.')); list.append(li); }
+  if (!data.reservations.length) { list.append(emptyState('🔖', 'Aucune réservation', 'Cherchez un document dans l’onglet Chercher pour le réserver.')); }
   for (const r of data.reservations) list.append(resaCard(r));
   $('resaStatus').textContent = `${data.reservations.length} réservation${data.reservations.length > 1 ? 's' : ''}${note}`;
 }
@@ -474,7 +487,7 @@ async function showBaskets(body, status) {
     };
     body.append(add);
     const ul = el('ul', 'cards');
-    if (!baskets.length) { const li = el('li', 'hero'); li.append(el('strong', '', 'Aucune liste'), el('p', '', 'Créez une liste, ou ajoutez un document depuis l’onglet Chercher (bouton ♡).')); ul.append(li); }
+    if (!baskets.length) { ul.append(emptyState('♡', 'Aucune liste', 'Créez une liste, ou ajoutez un document depuis Chercher avec le bouton ♡.')); }
     for (const b of baskets) {
       const li = el('li', 'card');
       const head = el('div', 'card-head'); const t = el('div', 'card-title');
@@ -508,7 +521,7 @@ async function showBasket(body, status, b) {
     const { results } = await call('/basket', { action: 'content', basketId: b.id });
     body.append(back);
     const ul = el('ul', 'cards');
-    if (!results.length) { const li = el('li', 'hero'); li.append(el('strong', '', 'Liste vide')); ul.append(li); }
+    if (!results.length) { ul.append(emptyState('📭', 'Liste vide', 'Ajoutez des documents avec le bouton ♡.')); }
     for (const it of results) {
       const li = searchCard(it);
       const row = el('div', 'btn-row');
@@ -562,7 +575,7 @@ async function openEspace(kind) {
     }
     const ul = el('ul', 'cards');
     const items = d.items.filter((it) => it.title || it.fields.length);
-    if (!items.length) { const li = el('li', 'hero'); li.append(el('strong', '', espaceKind === 'fines' ? 'Aucune amende' : 'Rien à afficher')); ul.append(li); }
+    if (!items.length) { ul.append(EMPTY[espaceKind] ? emptyState(...EMPTY[espaceKind]) : emptyState('📭', 'Rien à afficher', '')); }
     for (const it of items) ul.append(plainCard(it));
     body.append(ul); status.textContent = ESPACE[espaceKind];
     if (!items.length || items.every((it) => !it.fields.length)) {
