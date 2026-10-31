@@ -5,3 +5,7 @@ compatibility_date = "2026-01-01"
 [vars]
 # Adresse de l'appli sur GitHub Pages (sans barre finale), à adapter.
 ALLOWED_ORIGIN = "https://toolsmaker2099.github.io"
+
+# Exécute le relais près du portail de la BMVR : chaque lecture enchaîne 3 à 4 appels vers lui, donc la distance compte.
+[placement]
+mode = "smart"
