@@ -137,6 +137,7 @@ export function parseLoans(loans) {
       author: String(it.author ?? '').trim(),
       dueDate: toISODate(it.returnDate ?? it.dateDue ?? it.dueDate, it.dateFormat),
       renewable: it.isRenewable ?? null,
+      isbn: String(it.isbn13 || it.isbn10 || it.isbn || '').replace(/[^0-9Xx]/g, ''),
     }))
     .filter((l) => l.dueDate)
     .sort((a, b) => a.dueDate.localeCompare(b.dueDate));

@@ -20,6 +20,17 @@ function render({ loans, fetchedAt }, note = '') {
     const d = daysLeft(l.dueDate);
     const li = document.createElement('li');
     li.className = d < 0 ? 'late' : d <= 3 ? 'soon' : '';
+    if (l.isbn) {
+      // Couverture via Open Library (adresse = ISBN du livre ; aucune donnée personnelle). Masquée si introuvable.
+      const img = document.createElement('img');
+      img.className = 'cover';
+      img.alt = '';
+      img.loading = 'lazy';
+      img.referrerPolicy = 'no-referrer';
+      img.src = `https://covers.openlibrary.org/b/isbn/${encodeURIComponent(l.isbn)}-M.jpg?default=false`;
+      img.onerror = () => img.remove();
+      li.append(img);
+    }
     const info = document.createElement('div');
     const t = document.createElement('strong'); t.textContent = l.title;
     const a = document.createElement('small'); a.textContent = l.author;
@@ -28,6 +39,7 @@ function render({ loans, fetchedAt }, note = '') {
     const s = document.createElement('small'); s.textContent = new Date(l.dueDate + 'T00:00:00').toLocaleDateString('fr-FR');
     b.append(label(d), s);
     li.append(info, b);
+    info.style.flex = '1';
     list.append(li);
   }
   $('status').textContent = `${loans.length} prêt(s) · mis à jour ${new Date(fetchedAt).toLocaleString('fr-FR')}${note}`;

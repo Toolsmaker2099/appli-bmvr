@@ -17,3 +17,5 @@ li small{opacity:.7;display:block}
 .soon .badge{color:var(--warn)}.late .badge{color:var(--late)}
 #links a{display:block;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;margin-top:8px;color:var(--accent);text-decoration:none}
 pre{white-space:pre-wrap;word-break:break-word;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px;font-size:.75rem;user-select:all}
+.cover{width:48px;height:68px;object-fit:cover;border-radius:6px;background:var(--line);flex:none}
+li{align-items:center}
