@@ -402,8 +402,9 @@ export function parseSearch(res) {
     const fields = [];
     const seen = new Set();
     const add = (label, vals) => { const v = [...new Set(vals)].join(' · ').slice(0, 600); if (v && !seen.has(label + v)) { seen.add(label + v); fields.push([label, v]); } };
-    for (const [k, v] of Object.entries(e)) if (!SKIP.test(k) && k !== 'date' && k !== 'typeOfDocumentFacet') add(pretty(k), flat(v));
-    for (const [k, v] of Object.entries(e.meta ?? {})) if (!SKIP.test(k)) add(pretty(k), flat(v));
+    // Seuls les champs que l'on sait nommer clairement sont gardés (le reste est du jargon technique du portail).
+    const KEEP = ['summary', 'publisher', 'collection', 'series', 'language', 'subject', 'genre', 'physicalDescription', 'edition', 'isbn'];
+    for (const k of KEEP) { const v = e[k] ?? e.meta?.[k]; if (v != null) add(LABELS[k], flat(v)); }
     return {
       id,
       title: cleanTitle(first(e.title)) || 'Document',
@@ -458,7 +459,13 @@ export async function reserveInfo(creds, id, fetchFn = fetch, debug = false) {
   check(id);
   const { c, token } = await login(creds, fetchFn);
   let stock = null; const errs = [];
-  try { stock = failIfError(await c.get(token, 'notice', { id, locale: 'fr', aspect: 'Stock' }), 'Exemplaires'); } catch (e) { errs.push(`Stock: ${e.message.slice(0, 80)}`); }
+  let useId = id;
+  for (const cand of [...new Set([id, id.replace(/^[a-z]::/i, ''), id.replace(/^.*_0*/, '')])].filter(Boolean)) {
+    try { stock = failIfError(await c.get(token, 'notice', { id: cand, locale: 'fr', aspect: 'Stock' }), 'Exemplaires'); useId = cand; break; } catch (e) { errs.push(`Stock ${cand}: ${e.message.slice(0, 70)}`); }
+  }
+  if (!stock) {
+    try { const m = await c.get(token, 'notice', { id, locale: 'fr', aspect: 'Meta' }); errs.push(m?.errorReponse ? `Meta: ${String(m.error).slice(0, 60)}` : `Meta ok (${Object.keys(m).slice(0, 8).join(',')})`); } catch (e) { errs.push(`Meta: ${e.message.slice(0, 70)}`); }
+  }
   const copies = parseCopies(stock);
   const vols = await c.post(token, 'reservationVolumes', { id, locale: 'fr' }).catch((e) => ({ errorReponse: true, error: e.message }));
   // Le portail réserve un exemplaire précis : on essaie d'abord ceux qui ne sont pas disponibles (déjà sortis), puis les autres, puis sans exemplaire.
