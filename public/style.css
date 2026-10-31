@@ -175,3 +175,12 @@ details[open]>summary.acc{border-bottom-left-radius:0;border-bottom-right-radius
 .nf.wide{grid-column:1/-1}
 .nf.wide p{line-height:1.5}
 .copy-h strong{font-size:.92rem}.copy-h .chip{white-space:nowrap;flex:none}
+
+/* compte actif, toujours visible */
+.user-chip{display:flex;align-items:center;gap:8px;max-width:46%;padding:4px 12px 4px 4px;border-radius:999px;background:var(--card);border:1px solid var(--line);color:var(--fg);text-decoration:none;font-size:.82rem;font-weight:600;margin-left:auto}
+.user-chip + .icon-btn{margin-left:8px}
+.chip-av{width:28px;height:28px;border-radius:50%;display:grid;place-items:center;font-size:.72rem;font-weight:700;flex:none}
+.chip-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.accounts .avatar{width:36px;height:36px;border-radius:50%;display:grid;place-items:center;font-weight:700;font-size:.8rem;flex:none}
+.accounts li.on{background:color-mix(in srgb,var(--accent) 8%,var(--card))}
+.top>div{min-width:0;flex:1}.chip-name{max-width:6.5em}h1{font-size:1.5rem}

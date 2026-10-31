@@ -77,6 +77,17 @@ const rel = (d) => (d < 0 ? `En retard de ${-d} jour${d < -1 ? 's' : ''}` : d ==
 
 // ---------- navigation par onglets ----------
 const TITLES = { accueil: 'Accueil', prets: 'Mes prêts', resa: 'Mes réservations', chercher: 'Chercher et réserver', espace: 'Mon espace', compte: 'Compte et connexion' };
+// Couleur propre à chaque compte, pour savoir d'un coup d'œil lequel est actif.
+const userColor = (name) => { let h = 0; for (const ch of String(name)) h = (h * 31 + ch.charCodeAt(0)) % 360; return `hsl(${h} 45% 38%)`; };
+const initials = (name) => String(name || '?').replace(/[^A-Za-zÀ-ÿ0-9]/g, '').slice(0, 2).toUpperCase() || '?';
+function paintAvatar(node, name) { node.textContent = initials(name); node.style.background = userColor(name); node.style.color = '#fff'; }
+function renderUserChip() {
+  const c = $('userChip'); const name = store.get('user');
+  c.hidden = !hasCreds(); if (c.hidden) return;
+  c.replaceChildren(); const av = el('span', 'chip-av'); paintAvatar(av, name);
+  c.append(av, el('span', 'chip-name', name));
+  c.setAttribute('aria-label', 'Compte actif : ' + name + ' — changer de compte');
+}
 function go() {
   const [h1, sub] = location.hash.slice(1).split('/');
   const tab = TITLES[h1] ? h1 : 'accueil';
@@ -84,6 +95,7 @@ function go() {
   document.querySelectorAll('.tabs a').forEach((a) => a.classList.toggle('on', a.dataset.tab === (tab === 'compte' ? 'espace' : tab)));
   $('title').textContent = tab === 'espace' && ESPACE[sub] ? ESPACE[sub] : TITLES[tab];
   $('sync').hidden = !['prets', 'resa'].includes(tab) || !hasCreds();
+  renderUserChip();
   window.scrollTo(0, 0);
   if (tab === 'accueil') renderSummary();
   if (tab === 'compte') renderAccount();
@@ -765,7 +777,8 @@ async function showBasket(body, status, b) {
 function espaceMenu(body, status) {
   body.replaceChildren(); status.textContent = '';
   const who = el('div', 'menu-who');
-  who.append(el('span', 'avatar', (store.get('user') || '?').slice(0, 2).toUpperCase()), el('span', '', hasCreds() ? `Connecté · ${store.get('user')}` : 'Non connecté'));
+  const mav = el('span', 'avatar'); paintAvatar(mav, store.get('user') || '?');
+  who.append(mav, el('span', '', hasCreds() ? `Connecté · ${store.get('user')}` : 'Non connecté'));
   body.append(who);
   const ul = el('ul', 'menu');
   const item = (href, ico, title, sub) => { const li = el('li'); const a = el('a'); a.href = href; a.append(el('span', 'm-ico', ico)); const t = el('span', 'm-txt'); t.append(el('strong', '', title), el('small', '', sub)); a.append(t, el('span', 'm-go', '›')); li.append(a); ul.append(li); };
@@ -837,7 +850,8 @@ function renderAccount() {
     const ul = el('ul', 'accounts');
     for (const pr of list) {
       const li = el('li', pr.id === activeId() ? 'on' : '');
-      li.append(el('span', 'avatar', pr.user.slice(0, 2).toUpperCase()), el('span', 'acc-name', pr.user));
+      const av = el('span', 'avatar'); paintAvatar(av, pr.user);
+      li.append(av, el('span', 'acc-name', pr.user));
       if (pr.id === activeId()) li.append(el('span', 'chip good', 'Actif'));
       else { const b = el('button', 'link', 'Utiliser'); b.onclick = () => switchProfile(pr.id); li.append(b); }
       ul.append(li);
@@ -851,7 +865,7 @@ function renderAccount() {
 $('save').onclick = () => {
   const u = $('user').value.trim(), p = $('pass').value;
   if (!u || !p) { $('err').textContent = 'Saisissez votre identifiant et votre mot de passe.'; return; }
-  addProfile(u, p); addingAccount = false;
+  addProfile(u, p); addingAccount = false; renderUserChip();
   $('user').value = ''; $('pass').value = ''; $('err').textContent = '';
   location.hash = '#prets';
 };
