@@ -412,7 +412,7 @@ export async function cancelReservation(creds, req, fetchFn = fetch) {
   let r;
   if (/^syracuse$/i.test(ilsType ?? '') && reservationId) r = await c.get(token, 'cancelReservation', { ilsType: 'Syracuse', reservationId });
   else if (reservationId && !seqNo) r = await c.get(token, 'cancelReservation', { ilsType: 'concerto', reservationId });
-  else r = await c.post(token, 'cancelReservation', { seqNo, volNo: volume || null, omnidexId: omnidexId || null, pickupBranch: pickupBranch || null });
+  else { const cp = { seqNo, volNo: volume || null, omnidexId: omnidexId || null, pickupBranch: pickupBranch || null }; r = await c.get(token, 'cancelReservation', cp).catch(() => c.post(token, 'cancelReservation', cp)); }
   failIfError(r, 'Annulation');
   return { canceled: true };
 }
@@ -558,14 +558,14 @@ export async function reserveInfo(creds, id, fetchFn = fetch, debug = false) {
     try { const m = await c.get(token, 'notice', { id, locale: 'fr', aspect: 'Meta' }); errs.push(m?.errorReponse ? `Meta: ${String(m.error).slice(0, 60)}` : `Meta ok (${Object.keys(m).slice(0, 8).join(',')})`); } catch (e) { errs.push(`Meta: ${e.message.slice(0, 70)}`); }
   }
   const copies = parseCopies(stock);
-  const vols = await c.post(token, 'reservationVolumes', { id, locale: 'fr' }).catch((e) => ({ errorReponse: true, error: e.message }));
+  const vols = await c.get(token, 'reservationVolumes', { id, locale: 'fr' }).catch((e) => ({ errorReponse: true, error: e.message }));
   // Le portail réserve un exemplaire précis : on essaie d'abord ceux qui ne sont pas disponibles (déjà sortis), puis les autres, puis sans exemplaire.
   const candidates = [...copies.filter((x) => x.canReserve), ...copies.filter((x) => !x.canReserve)].slice(0, 4).map((x) => x.no);
   let choices, copyNo = '';
   for (const no of [...candidates, '']) {
     for (const [how, call] of [
+      ['GET', () => c.get(token, 'reservationChoices', { id, ...(no ? { serialCopyNo: no } : {}), locale: 'fr' })],
       ['POST', () => c.post(token, 'reservationChoices', { id, ...(no ? { serialCopyNo: no } : {}), locale: 'fr' })],
-      ...(no ? [] : [['GET', () => c.get(token, 'reservationChoices', { id, locale: 'fr' })]]),
     ]) {
       try { const r = await call(); if (!r?.errorReponse) { choices = r; copyNo = no; break; } errs.push(`${how} ${no}: ${String(r.error || r.code).slice(0, 80)}`); } catch (e) { errs.push(`${how} ${no}: ${e.message.replace(/^Portail: reservationChoices → /, '').slice(0, 60)}`); }
     }
@@ -583,7 +583,8 @@ export async function reserveInfo(creds, id, fetchFn = fetch, debug = false) {
 export async function reserveRank(creds, { id, volume, branch, copyNo }, fetchFn = fetch) {
   check(id);
   const { c, token } = await login(creds, fetchFn);
-  const r = await c.post(token, 'reservationRankWithStatus', { id, volume: volume || null, branch, ...(copyNo ? { monographicCopyNo: copyNo } : {}) });
+  const rp = { id, volume: volume || null, branch, ...(copyNo ? { monographicCopyNo: copyNo } : {}) };
+  const r = await c.get(token, 'reservationRankWithStatus', rp).catch(() => c.post(token, 'reservationRankWithStatus', rp));
   return { ok: r.status !== false, rank: r.rank ?? null };
 }
 
@@ -595,9 +596,9 @@ export async function makeReservation(creds, { id, volume, branch, copyNo }, fet
   if (copyNo && !/^[^\s"\\<>]{1,60}$/.test(String(copyNo))) throw new Error('Exemplaire invalide');
   const { c, token } = await login(creds, fetchFn);
   const vol = volume || null;
-  await c.post(token, 'reservationVolumes', { id, locale: 'fr' }).catch(() => null);
-  await c.post(token, 'reservationChoices', { id, ...(copyNo ? { serialCopyNo: copyNo } : {}), locale: 'fr' }).catch(() => null);
-  await c.post(token, 'reservationRankWithStatus', { id, volume: vol, branch, ...(copyNo ? { monographicCopyNo: copyNo } : {}) }).catch(() => null);
+  await c.get(token, 'reservationVolumes', { id, locale: 'fr' }).catch(() => null);
+  await c.get(token, 'reservationChoices', { id, ...(copyNo ? { serialCopyNo: copyNo } : {}), locale: 'fr' }).catch(() => null);
+  await c.get(token, 'reservationRankWithStatus', { id, volume: vol, branch, ...(copyNo ? { monographicCopyNo: copyNo } : {}) }).catch(() => null);
   const errs = [];
   for (const [how, body] of [
     ['exemplaire', { id, volume: vol, branch, ...(copyNo ? { monographicCopyNo: copyNo } : {}), locale: 'fr' }],
@@ -605,7 +606,8 @@ export async function makeReservation(creds, { id, volume, branch, copyNo }, fet
     ['sans exemplaire', { id, volume: vol, branch, locale: 'fr' }],
   ]) {
     try {
-      const r = failIfError(await c.post(token, 'makeReservation', body), 'Réservation');
+      // Le portail appelle makeReservation en GET (paramètres dans l'adresse) ; on garde le POST en secours.
+      const r = failIfError(await c.get(token, 'makeReservation', body).catch((ge) => (/HTTP 5\d\d|InvalidRequest/.test(ge.message) ? c.post(token, 'makeReservation', body) : Promise.reject(ge))), 'Réservation');
       return { done: r.inSuccess === true };
     } catch (e) {
       if (e instanceof AuthError || !/HTTP 500|Fatal|InvalidRequest/.test(e.message)) throw e;
@@ -708,7 +710,7 @@ export async function deleteMessage(creds, messageId, fetchFn = fetch) {
   const errs = [];
   for (const cand of cands) {
     try {
-      const r = await c.post(token, 'deleteMessage', { messageId: cand });
+      const r = await c.get(token, 'deleteMessage', { messageId: cand }).catch(() => c.post(token, 'deleteMessage', { messageId: cand }));
       if (r?.faultString || r?.errorReponse) { errs.push(`${cand}: ${String(r.faultString || r.error || r.code).slice(0, 80)}`); continue; }
       const left = (await rawList()).some((m) => String((m?.data ?? m)?.number ?? m?.number) === num);
       if (!left) return { ok: true };
