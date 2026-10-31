@@ -952,24 +952,82 @@ const LIBRARIES = [
   ['Bibliothèque Salim-Hatubou', 'Bibliothèque Salim Hatubou Marseille', ''],
   ['Ludothèque Simone de Beauvoir', 'Ludothèque Simone de Beauvoir Marseille', ''],
 ];
-async function showLibraries(body, status) {
-  status.textContent = '';
-  const infos = el('div', 'card infos'); infos.hidden = true; body.append(infos);
-  const top = el('a', 'primary small linkbtn', '🕒 Voir les horaires officiels'); top.href = 'https://www.bmvr.marseille.fr/horaires-bibliotheques'; top.target = '_blank'; top.rel = 'noopener noreferrer';
-  body.append(top);
-  body.append(el('p', 'hint', 'Les horaires changent selon la saison et les travaux : ils sont publiés sur le site officiel.'));
-  const ul = el('ul', 'cards');
-  for (const [name, q, area] of LIBRARIES) {
-    const li = el('li', 'card libcard');
-    const t = el('div', 'lib-t'); t.append(el('strong', '', name)); if (area) t.append(el('small', '', area));
-    const a = el('a', 'secondary small linkbtn', '📍 Itinéraire'); a.href = 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(q); a.target = '_blank'; a.rel = 'noopener noreferrer';
-    li.append(t, a); ul.append(li);
+function hourRanges(cell) {
+  const out = []; const re = /(\d{1,2})h(\d{2})?\s*(?:-|–|à)\s*(\d{1,2})h(\d{2})?/gi; let m;
+  while ((m = re.exec(cell))) out.push([+m[1] * 60 + (+m[2] || 0), +m[3] * 60 + (+m[4] || 0)]);
+  return out;
+}
+function openState(cell, now) {
+  const r = hourRanges(cell || '');
+  if (/rdv/i.test(cell || '')) return ['rdv', 'Sur rendez-vous'];
+  if (!r.length) return ['closed', 'Fermée aujourd’hui'];
+  const min = now.getHours() * 60 + now.getMinutes();
+  const cur = r.find(([a, b]) => min >= a && min < b);
+  const fmt = (x) => Math.floor(x / 60) + 'h' + (x % 60 ? String(x % 60).padStart(2, '0') : '');
+  if (cur) return ['open', 'Ouverte jusqu’à ' + fmt(cur[1])];
+  const next = r.find(([a]) => min < a);
+  return next ? ['soon', 'Ouvre à ' + fmt(next[0])] : ['closed', 'Fermée pour aujourd’hui'];
+}
+function fmtCell(c) {
+  c = c || '';
+  const m = c.match(/\d{1,2}\s*h(?:\d{2})?\s*(?:-|–|à)\s*\d{1,2}\s*h(?:\d{2})?/gi);
+  if (!m || /rdv/i.test(c)) return c || '—';
+  return m.map((x) => x.replace(/\s*(?:-|–|à)\s*/, ' – ').replace(/\s+/g, ' ')).join(' · ');
+}
+function hoursCard(row, days, di, now) {
+  const li = el('li', 'card libcard hours');
+  const head = el('div', 'lib-h');
+  const t = el('div', 'lib-t'); t.append(el('strong', '', row.name));
+  const [kind, label] = di < 0 ? ['closed', 'Fermée le dimanche'] : openState(row.hours[di], now);
+  const allClosed = row.hours.every((h) => !h || /^ferm/i.test(h));
+  const badge = allClosed ? el('span', 'ostate closed', 'Fermée') : el('span', 'ostate ' + kind, label);
+  head.append(t, badge); li.append(head);
+  if (row.note) li.append(el('p', 'lib-note', row.note));
+  if (!allClosed) {
+    const tbl = el('div', 'week');
+    days.forEach((d, i) => {
+      const r = el('div', 'wd' + (i === di ? ' today' : ''));
+      r.append(el('span', 'wd-n', d.slice(0, 3) + '.'), el('span', 'wd-h', fmtCell(row.hours[i])));
+      tbl.append(r);
+    });
+    li.append(tbl);
   }
-  body.append(ul);
+  const a = el('a', 'secondary small linkbtn', '📍 Itinéraire'); a.href = 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(row.name + ' Marseille'); a.target = '_blank'; a.rel = 'noopener noreferrer';
+  li.append(a);
+  return li;
+}
+async function showLibraries(body, status) {
+  status.textContent = 'Lecture des horaires sur le site officiel…';
+  const infos = el('div', 'card infos'); infos.hidden = true; body.append(infos);
+  const box = el('div'); body.append(box);
+  const foot = el('p', 'hint'); body.append(foot);
+  const top = el('a', 'secondary small linkbtn', '🕒 Voir la page officielle des horaires'); top.href = 'https://www.bmvr.marseille.fr/horaires-bibliotheques'; top.target = '_blank'; top.rel = 'noopener noreferrer';
+  body.append(top);
   try {
-    const d = await call('/infos');
-    if (d.html) { infos.hidden = false; infos.append(el('h4', '', '⚠️ Informations aux usagers'), richBody(d.html, '')); }
-  } catch { /* les infos sont facultatives */ }
+    const d = await call('/horaires');
+    status.textContent = '';
+    const now = new Date(); const di = (now.getDay() + 6) % 7; const di2 = di > 5 ? -1 : di;
+    if (d.html) { infos.hidden = false; const rb = richBody(d.html.replace(/PERTURBATIONS ET INFORMATIONS AUX USAGERS/gi, ''), ''); infos.append(el('h4', '', '⚠️ Informations aux usagers'), rb); }
+    if (!d.sections?.length) throw new Error('vide');
+    for (const sec of d.sections) {
+      box.append(el('h3', 'sec-t', sec.title));
+      const ul = el('ul', 'cards');
+      for (const row of sec.rows) ul.append(hoursCard(row, sec.days, di2, now));
+      box.append(ul);
+    }
+    foot.textContent = 'Horaires lus sur le site officiel de la BMVR à ' + now.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) + '. Ils peuvent changer (saison, travaux) : en cas de doute, voir la page officielle.';
+  } catch {
+    status.textContent = '';
+    foot.textContent = 'Impossible de lire les horaires pour le moment. Consultez la page officielle ci-dessous.';
+    const ul = el('ul', 'cards');
+    for (const [name, q, area] of LIBRARIES) {
+      const li = el('li', 'card libcard');
+      const t = el('div', 'lib-t'); t.append(el('strong', '', name)); if (area) t.append(el('small', '', area));
+      const a = el('a', 'secondary small linkbtn', '📍 Itinéraire'); a.href = 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(q); a.target = '_blank'; a.rel = 'noopener noreferrer';
+      li.append(t, a); ul.append(li);
+    }
+    box.append(ul);
+  }
 }
 
 async function openEspace(kind) {

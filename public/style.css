@@ -232,3 +232,18 @@ a.primary.linkbtn{background:var(--accent);color:var(--accent-fg);display:block;
 .card.infos{border-left-color:var(--warn);padding:12px 14px;margin-bottom:12px}
 .card.infos h4{margin:0 0 6px}
 .card.selectable .card-head{padding-right:52px}
+
+.libcard.hours{display:block}
+.lib-h{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}
+.lib-note{margin:6px 0 0;font-size:.85rem;color:var(--muted,#666)}
+.ostate{font-size:.75rem;font-weight:600;padding:3px 9px;border-radius:99px;white-space:nowrap;background:#eee;color:#555}
+.ostate.open{background:#dff5e3;color:#16692d}
+.ostate.soon{background:#fff0d6;color:#8a5200}
+.ostate.rdv{background:#e4ecff;color:#2a4fa3}
+.ostate.closed{background:#f1e1e1;color:#8a2c2c}
+.week{margin:10px 0;display:grid;gap:2px}
+.wd{display:flex;gap:10px;font-size:.88rem;padding:3px 6px;border-radius:6px}
+.wd-n{width:3.2em;color:#777}
+.wd.today{background:rgba(120,120,255,.12);font-weight:600}
+.sec-t{margin:16px 0 6px;font-size:1rem}
+.libcard.hours .linkbtn{margin-top:4px}

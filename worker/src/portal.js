@@ -963,16 +963,64 @@ export async function fetchNotice(creds, id, fetchFn = fetch, debug = false) {
   return debug ? { fields, shape: shapeOf(res), keys: Object.keys(res ?? {}) } : { fields };
 }
 
-// Informations aux usagers (travaux, fermetures, réouvertures) : texte de la page officielle des horaires, lu dans le contenu public du portail.
-export async function fetchInfos(fetchFn = fetch) {
+// Horaires et informations aux usagers : lus à chaque appel dans la page officielle des horaires (contenu public du portail).
+const DAYS_FR = ['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi'];
+export function parseHours(graph) {
+  const nodes = new Map();
+  const collect = (v) => {
+    if (Array.isArray(v)) v.forEach(collect);
+    else if (v && typeof v === 'object') { if (v.tag && v.id != null && !nodes.has(String(v.id))) nodes.set(String(v.id), v); Object.values(v).forEach(collect); }
+  };
+  collect(graph);
+  const txt = (n) => {
+    let c = n.children; if (c && typeof c === 'object' && !Array.isArray(c)) c = c.fr;
+    return typeof c === 'string' ? htmlText(c).replace(/ /g, ' ').trim() : '';
+  };
+  const TEXT = /^(TextBox|TextBoxInlineTagging|h[1-6])$/;
+  const texts = (n, out = []) => {
+    if (TEXT.test(n.tag)) { const t = txt(n); if (t) out.push(t); }
+    if (Array.isArray(n.children)) for (const id of n.children) { const k = nodes.get(String(id)); if (k) texts(k, out); }
+    return out;
+  };
+  let html = '';
+  const rows = []; const seen = new Set();
+  const walk = (n) => {
+    if (TEXT.test(n.tag)) { let c = n.children; if (c && typeof c === 'object' && !Array.isArray(c)) c = c.fr; if (typeof c === 'string' && /PERTURBATIONS|INFORMATIONS AUX USAGERS/i.test(c) && c.length > html.length && c.length < 20000) html = c; }
+    if (n.tag === 'Columns' && /_Columns$/.test(n.label || '') && Array.isArray(n.children)) {
+      const cols = n.children.map((id) => nodes.get(String(id))).filter((k) => k && k.tag === 'Column');
+      if (cols.length) {
+        const cells = cols.map((col) => {
+          const w = parseFloat(String(col.styleProps?.widthValue ?? '').replace('%', '')) || 12.5;
+          return { slots: Math.max(1, Math.round(w / 12.5)), parts: texts(col) };
+        });
+        const key = (cells[0]?.parts[0] || '') + '|' + cells.slice(1).map((c) => c.parts.join('/')).join('|');
+        if (cells[0]?.parts[0] && !seen.has(key)) { seen.add(key); rows.push(cells); }
+      }
+    }
+    if (Array.isArray(n.children)) for (const id of n.children) { const k = nodes.get(String(id)); if (k) walk(k); }
+  };
+  const roots = [...nodes.values()].filter((n) => !nodes.has(String(n.parent)));
+  roots.forEach(walk);
+  const sections = []; let days = DAYS_FR;
+  for (const cells of rows) {
+    const first = cells[0].parts;
+    const rest = cells.slice(1);
+    const isHeader = rest.filter((c) => /^(lundi|mardi|mercredi|jeudi|vendredi|samedi|dimanche)$/i.test(c.parts[0] || '')).length >= 4;
+    if (isHeader) { days = rest.map((c) => c.parts[0]).filter(Boolean).slice(0, 7); sections.push({ title: first[0], days, rows: [] }); continue; }
+    if (!sections.length) sections.push({ title: 'Horaires', days, rows: [] });
+    const slots = [];
+    for (const c of rest) for (let i = 0; i < c.slots && slots.length < days.length; i++) slots.push(c.parts.join(' ').replace(/\s+/g, ' ').trim());
+    while (slots.length < days.length) slots.push('');
+    sections.at(-1).rows.push({ name: first[0].replace(/\s+/g, ' '), note: first.slice(1).join(' '), hours: slots });
+  }
+  return { html: html.slice(0, 12000), sections: sections.filter((x) => x.rows.length) };
+}
+
+export async function fetchHours(fetchFn = fetch) {
   const c = makeClient(fetchFn);
   await c.init();
-  const r = await c.get(null, 'contentGraphByPath', { locale: 'fr', path: '/horaires-ete-bibliotheques', depth: 6 });
-  let best = '';
-  const walk = (v) => {
-    if (typeof v === 'string') { if (/PERTURBATIONS|INFORMATIONS AUX USAGERS/i.test(v) && v.length > best.length && v.length < 20000) best = v; }
-    else if (v && typeof v === 'object') Object.values(v).forEach(walk);
-  };
-  walk(r);
-  return { html: best.slice(0, 12000) };
+  const r = await c.get(null, 'contentGraphByPath', { locale: 'fr', path: '/horaires-bibliotheques', depth: 6 });
+  let g = r;
+  if (!r?.content) g = await c.get(null, 'contentGraphByPath', { locale: 'fr', path: '/horaires-ete-bibliotheques', depth: 6 });
+  return { ...parseHours(g), fetchedAt: new Date().toISOString() };
 }
