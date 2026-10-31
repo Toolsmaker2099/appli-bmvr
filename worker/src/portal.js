@@ -54,7 +54,7 @@ function makeClient(apiToken, fetchFn) {
         headers: { ...base, 'X-InMedia-Authorization': `Bearer ${token} ${apiToken} ${checksum(signed)}`, Cookie: cookieHeader() },
       });
       keep(res);
-      if (!res.ok) throw new Error(`Portail: ${path} → HTTP ${res.status}`);
+      if (!res.ok) throw new Error(`Portail: ${path} → HTTP ${res.status} ${(await res.text()).replace(/\s+/g, ' ').slice(0, 200)}`);
       return res.json();
     },
   };
@@ -101,7 +101,12 @@ export async function fetchLoans({ username, password }, fetchFn = fetch, debug 
   const c = makeClient(apiToken, fetchFn);
   const session = await c.post(null, 'authenticate', { username: username.includes('@') ? username.toLowerCase() : username, password, locale: 'fr' });
   if (!session.token) throw new AuthError(`Connexion refusée : ${session.error || 'identifiants incorrects ?'}`);
-  const loans = await c.get(session.token, 'loans', { locale: 'fr' });
+  // Le portail attend parfois la langue, parfois non : on essaie les deux et on garde la première réponse valide.
+  let loans, lastErr;
+  for (const params of [{ locale: 'fr' }, {}, { locale: 'fr', id: '' }]) {
+    try { loans = await c.get(session.token, 'loans', params); break; } catch (e) { lastErr = e; }
+  }
+  if (!loans) throw lastErr;
   const seqNos = (loans.items ?? []).map((it) => it.seqNo ?? it.data?.seqNo ?? it.data?.seq_no ?? it.bacNo ?? it.data?.bacNo).filter((x) => x != null);
   const resolved = {};
   let rs = null;
