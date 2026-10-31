@@ -684,7 +684,7 @@ export function parseMessages(res) {
       id: `${d.number ?? d.messageId ?? i}|${d.date ?? ''}|${d.time ?? ''}`,
       title: isSystem ? 'Message de la bibliothèque' : subject,
       author: '', coverId: '', isbn: '',
-      date, time,
+      date, time, from: htmlText(d.from), html: String(d.body ?? d.message ?? d.text ?? '').slice(0, 20000),
       fields: [date && ['Reçu le', frDate(date) + (time ? ` à ${time}` : '')], body && ['Message', body.slice(0, 2000)]].filter(Boolean),
     };
   });

@@ -566,6 +566,97 @@ function plainCard(it) {
   return li;
 }
 
+// ---------- messages : texte riche nettoyé (liste blanche de balises), puces et liens reconnus ----------
+const SAFE_URL = /^(https?:|mailto:)/i;
+function richNodes(html) {
+  const doc = new DOMParser().parseFromString(String(html || ''), 'text/html');
+  const out = document.createDocumentFragment();
+  const linkify = (txt, parent) => {
+    const re = /(https?:\/\/[^\s<>"']+|www\.[^\s<>"']+)/g; let last = 0, m;
+    while ((m = re.exec(txt))) {
+      if (m.index > last) parent.append(txt.slice(last, m.index));
+      const url = m[0].replace(/[.,;:)]+$/, ''); const a = el('a', '', url); a.href = url.startsWith('www.') ? 'https://' + url : url; a.target = '_blank'; a.rel = 'noopener noreferrer';
+      parent.append(a); last = m.index + url.length; re.lastIndex = last;
+    }
+    if (last < txt.length) parent.append(txt.slice(last));
+  };
+  const walk = (node, parent) => {
+    for (const n of node.childNodes) {
+      if (n.nodeType === 3) { linkify(n.nodeValue.replace(/\u00a0/g, ' '), parent); continue; }
+      if (n.nodeType !== 1) continue;
+      const t = n.tagName;
+      if (/^(SCRIPT|STYLE|IFRAME|OBJECT|EMBED|FORM|HEAD)$/.test(t)) continue;
+      let tag = null;
+      if (/^(P|DIV|H[1-6]|BLOCKQUOTE|TR)$/.test(t)) tag = /^H/.test(t) ? 'h4' : 'p';
+      else if (/^(STRONG|B)$/.test(t)) tag = 'strong'; else if (/^(EM|I)$/.test(t)) tag = 'em'; else if (t === 'U') tag = 'u';
+      else if (/^(UL|OL)$/.test(t)) tag = 'ul'; else if (t === 'LI') tag = 'li'; else if (t === 'BR') { parent.append(document.createElement('br')); continue; }
+      else if (t === 'A') {
+        const href = n.getAttribute('href') || '';
+        if (SAFE_URL.test(href)) { const a = el('a'); a.href = href; a.target = '_blank'; a.rel = 'noopener noreferrer'; walk(n, a); parent.append(a); continue; }
+      }
+      const style = (n.getAttribute('style') || '');
+      if (!tag && /underline/.test(style)) tag = 'u'; else if (!tag && /font-weight:\s*(bold|[6-9]00)/.test(style)) tag = 'strong';
+      if (!tag) { walk(n, parent); continue; }
+      const e = document.createElement(tag); walk(n, e); parent.append(e);
+    }
+  };
+  walk(doc.body, out);
+  return out;
+}
+function richBody(html, plain) {
+  const box = el('div', 'rich');
+  box.append(richNodes(/[<][a-z!/]/i.test(html || '') ? html : String(plain || '').split(/\n{2,}/).map((x) => '<p>' + x.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/\n/g, '<br>') + '</p>').join('')));
+  // lignes « * texte » ou « • texte » : de vraies puces
+  for (const p of [...box.querySelectorAll(':scope > p, :scope > ul > li')]) {
+    const t = p.textContent;
+    if (/^\s*[*•·-]\s+\S/.test(t) && p.tagName === 'P') {
+      const lines = p.innerHTML.split(/<br\s*\/?>/i);
+      if (lines.every((l) => /^\s*[*•·-]\s+/.test(l.replace(/<[^>]+>/g, '')))) {
+        const ul = el('ul'); for (const l of lines) { const li = document.createElement('li'); li.innerHTML = l.replace(/^(\s*(<[^>]+>)*\s*)[*•·-]\s+/, '$1'); ul.append(li); }
+        p.replaceWith(ul);
+      } else { p.classList.add('bullet'); p.innerHTML = p.innerHTML.replace(/^(\s*(<[^>]+>)*\s*)[*•·-]\s+/, '$1'); }
+    }
+  }
+  for (const ul of box.querySelectorAll('ul')) { const prev = ul.previousElementSibling; if (prev && prev.classList.contains('bullet')) { /* regroupe */ } }
+  // regroupe les paragraphes à puce consécutifs
+  let run = null;
+  for (const n of [...box.children]) {
+    if (n.classList?.contains('bullet')) { if (!run) { run = el('ul'); n.before(run); } const li = document.createElement('li'); li.innerHTML = n.innerHTML; run.append(li); n.remove(); } else run = null;
+  }
+  return box;
+}
+function messageCard(it, unread) {
+  const li = el('li', 'card msg' + (unread ? ' unread' : ''));
+  const head = el('div', 'msg-head');
+  head.append(el('span', 'msg-av', 'M'));
+  const t = el('div', 'msg-title');
+  t.append(el('strong', '', it.title || 'Message de la bibliothèque'));
+  const when = it.date ? `${longDate(it.date)}${it.time ? ' · ' + it.time : ''}` : '';
+  if (when) t.append(el('small', '', when));
+  head.append(t);
+  if (unread) head.append(el('span', 'chip good new-chip', 'Nouveau'));
+  li.append(head, richBody(it.html, (it.fields.find((f) => f[0] === 'Message') || [])[1]));
+  const foot = el('div', 'msg-foot');
+  const del = el('button', 'msg-del', '🗑 Supprimer');
+  const ask = el('span', 'msg-ask'); ask.hidden = true;
+  const yes = el('button', 'msg-yes', 'Oui, supprimer'), no = el('button', 'msg-no', 'Annuler');
+  ask.append(el('span', '', 'Supprimer définitivement ?'), yes, no);
+  del.onclick = () => { del.hidden = true; ask.hidden = false; };
+  no.onclick = () => { ask.hidden = true; del.hidden = false; };
+  const err = el('p', 'hint err'); err.hidden = true;
+  yes.onclick = async () => {
+    yes.disabled = no.disabled = true; yes.textContent = 'Suppression…'; err.hidden = true;
+    try {
+      await call('/delete-message', { id: it.id });
+      li.classList.add('gone'); setTimeout(() => li.remove(), 250);
+      const c = readMsgCache(); if (c) { c.items = c.items.filter((m) => m.id !== it.id); store.set('msgCache', JSON.stringify(c)); }
+      updateEspaceBadge();
+    } catch (e) { yes.disabled = no.disabled = false; yes.textContent = 'Oui, supprimer'; err.textContent = e.message; err.hidden = false; }
+  };
+  foot.append(del, ask); li.append(foot, err);
+  return li;
+}
+
 async function showBaskets(body, status) {
   const render = (baskets) => {
     body.replaceChildren();
@@ -667,22 +758,8 @@ async function openEspace(kind) {
     if (!items.length) { ul.append(EMPTY[espaceKind] ? emptyState(...EMPTY[espaceKind]) : emptyState('📭', 'Rien à afficher', '')); }
     const seen = espaceKind === 'messages' ? seenSet() : null;
     for (const it of items) {
-      const li = plainCard(it);
-      if (seen && !seen.has(it.id)) { li.classList.add('unread'); const h = li.querySelector('h3'); if (h) h.before(el('span', 'chip good new-chip', 'Nouveau')); }
-      if (espaceKind === 'messages') {
-        const del = el('button', 'link danger', 'Supprimer ce message');
-        del.onclick = async () => {
-          if (!confirm('Supprimer ce message définitivement ?')) return;
-          del.disabled = true; del.textContent = 'Suppression…';
-          try {
-            await call('/delete-message', { id: it.id });
-            li.remove();
-            const c = readMsgCache(); if (c) { c.items = c.items.filter((m) => m.id !== it.id); store.set('msgCache', JSON.stringify(c)); }
-            updateEspaceBadge();
-          } catch (e) { del.disabled = false; del.textContent = 'Supprimer ce message'; alert(e.message); }
-        };
-        li.append(del);
-      }
+      const li = espaceKind === 'messages' ? messageCard(it, !seen.has(it.id)) : plainCard(it);
+      if (seen && !seen.has(it.id) && espaceKind !== 'messages') { li.classList.add('unread'); const h = li.querySelector('h3'); if (h) h.before(el('span', 'chip good new-chip', 'Nouveau')); }
       ul.append(li);
     }
     if (seen) { items.forEach((it) => seen.add(it.id)); saveSeen(seen); store.set('msgCache', JSON.stringify({ at: Date.now(), items: items.map((m) => ({ id: m.id, title: m.title, date: m.date })) })); updateEspaceBadge(); }

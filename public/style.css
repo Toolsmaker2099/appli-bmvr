@@ -128,3 +128,22 @@ button.danger{color:#b3261e}
 .accounts li.on{border-color:var(--accent)}
 .acc-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;font-weight:600}
 .accounts .link{padding:4px 0}
+
+/* messages */
+.card.msg{border-left-width:1px;padding:0}
+.card.msg.unread{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent) inset}
+.msg-head{display:flex;align-items:center;gap:12px;padding:14px 14px 6px}
+.msg-av{width:40px;height:40px;border-radius:50%;background:var(--accent);color:var(--accent-fg);display:grid;place-items:center;font-weight:700;flex:none}
+.msg-title{flex:1;min-width:0;display:flex;flex-direction:column;line-height:1.25}
+.msg-title small{color:var(--muted)}
+.rich{padding:4px 16px 8px;font-size:.95rem;line-height:1.5;overflow-wrap:anywhere}
+.rich p{margin:0 0 .75em}.rich h4{margin:.8em 0 .4em}
+.rich ul{margin:0 0 .8em;padding-left:1.3em}.rich li{margin:.25em 0}
+.rich a{color:var(--accent);word-break:break-all}
+.msg-foot{display:flex;justify-content:flex-end;align-items:center;gap:8px;padding:6px 12px 12px;border-top:1px solid var(--line);margin-top:6px}
+.msg-del,.msg-no,.msg-yes{border-radius:999px;border:1px solid var(--line);background:var(--chip);color:var(--muted);padding:7px 14px;font-size:.85rem}
+.msg-del:hover{color:var(--late);border-color:var(--late)}
+.msg-yes{background:var(--late);border-color:var(--late);color:#fff;font-weight:600}
+.msg-ask{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end;font-size:.85rem;color:var(--muted)}
+.card.msg.gone{opacity:0;transform:scale(.97);transition:.25s}
+.card.msg p.hint{padding:0 16px 12px;margin:0}
