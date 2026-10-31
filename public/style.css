@@ -66,3 +66,6 @@ details dl{padding-top:2px}
 .tabs b{position:absolute;top:4px;left:calc(50% + 6px);min-width:18px;height:18px;border-radius:9px;background:var(--late);color:#fff;font-size:.7rem;display:grid;place-items:center;padding:0 5px}
 pre{white-space:pre-wrap;word-break:break-word;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px;font-size:.75rem;user-select:all}
 .actions{padding:0 14px 14px}.actions .primary{margin-top:0}.renew-msg{margin:8px 0 0}.renew-msg.ok{color:var(--ok);font-weight:600}
+.actions .renew{width:auto;padding:8px 16px;font-size:.88rem;border-radius:999px;margin-top:0}
+.actions{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px}
+.actions .renew-msg{margin:0;flex:1 1 100%}
