@@ -568,3 +568,140 @@ export async function makeReservation(creds, { id, volume, branch, copyNo }, fet
   }
   throw new Error(`Réservation refusée par le portail (${errs.join(' | ')})`);
 }
+
+
+// ---------- Historique, messages, amendes, profil, favoris ----------
+const FR_FIELDS = [
+  [/^(loanDate|dateLoan|checkoutDate)$/i, 'Emprunté le'], [/^(returnDate|dateReturned|returnedDate|checkinDate)$/i, 'Rendu le'], [/^(dueDate|dateDue)$/i, 'À rendre le'],
+  [/^(branch|library|branchDesc|location)$/i, 'Bibliothèque'], [/^(subject|messageSubject|object)$/i, 'Objet'],
+  [/^(message|body|text|content|messageBody)$/i, 'Message'], [/^(sender|from|fromName)$/i, 'De'],
+  [/^(amount|totalAmount|fineAmount|balance|fee|charge|totalCharge)$/i, 'Montant'], [/^(reason|fineReason|chargeReason)$/i, 'Motif'],
+  [/^(status|statusDescription|state)$/i, 'État'], [/^(paid|isPaid)$/i, 'Payé'], [/^(type|messageType)$/i, 'Type'],
+  [/^(expiryDate|expirationDate|subscriptionEnd|endDate)$/i, 'Expire le'], [/^(activationDate|subscriptionDate|startDate|beginDate)$/i, 'Début'],
+  [/^(date|created|createdDate|creationDate|sentDate|dateIssued|resvDate)$/i, 'Date'],
+  [/^(fullName|userName|name)$/i, 'Nom'], [/^firstName$/i, 'Prénom'], [/^(lastName|familyName)$/i, 'Nom de famille'],
+  [/^(email|mail)$/i, 'E-mail'], [/^(phone|phoneNumber|mobile|tel)$/i, 'Téléphone'], [/^(address|street|address1)$/i, 'Adresse'],
+  [/^city$/i, 'Ville'], [/^(zip|zipCode|postalCode)$/i, 'Code postal'], [/^(category|profileCategory|patronCategory|subscriptionType)$/i, 'Catégorie'],
+  [/^(birthDate|birthDateYYYMMDD|dateOfBirth)$/i, 'Date de naissance'], [/^(cardNumber|barcode|userId|login|username)$/i, 'N° de carte'],
+  [/^(volume)$/i, 'Volume'], [/^(issueCaption)$/i, 'Numéro'],
+];
+const frDate = (iso) => (iso ? iso.split('-').reverse().join('/') : '');
+
+function genericFields(d) {
+  const out = []; const seen = new Set();
+  for (const [k, v] of Object.entries(d)) {
+    const label = FR_FIELDS.find(([re]) => re.test(k))?.[1];
+    if (!label || v == null || typeof v === 'object' || v === '') continue;
+    let val = typeof v === 'boolean' ? (v ? 'Oui' : 'Non') : String(v).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+    if (!val) continue;
+    if (/date|expir|created|issued|^(startDate|endDate|beginDate|subscriptionEnd)$/i.test(k)) val = frDate(toISODate(val, d.dateFormat)) || val;
+    if (label === 'Montant' && /^-?\d+([.,]\d+)?$/.test(val)) val = `${val.replace('.', ',')} €`;
+    if (!readable(val) && /^[\w.]+$/.test(val) && /[a-z]\.[A-Za-z]/.test(val)) continue; // clé de traduction technique
+    if (seen.has(label + val)) continue;
+    seen.add(label + val);
+    out.push([label, val.slice(0, 600)]);
+  }
+  return out;
+}
+
+export function parseAccountItems(res) {
+  const items = Array.isArray(res) ? res : res?.items ?? [];
+  return items.map((raw, i) => {
+    const d = raw?.data ?? raw;
+    const seq = String(d.seqNo ?? '').trim();
+    const title = cleanTitle(d.title ?? d.documentTitle ?? raw?.resultItem?.title?.[0]?.value ?? d.subject ?? d.messageSubject) || '';
+    return {
+      id: String(d.id ?? d.messageId ?? d.reservationId ?? seq ?? i),
+      title,
+      author: cleanAuthor(d.author),
+      coverId: /^\d{1,10}$/.test(seq) ? `p::usmarcdef_${seq.padStart(10, '0')}` : '',
+      isbn: String(d.isbn13 || d.isbn10 || d.isbn || '').replace(/[^0-9Xx]/g, ''),
+      fields: genericFields(d).filter(([l]) => !(title && l === 'Objet' && false)),
+    };
+  });
+}
+
+const ACCOUNT_KINDS = { loanhistory: 'loanhistory', messages: 'messages', fines: 'fines' };
+
+export async function fetchAccount(creds, kind, fetchFn = fetch, debug = false) {
+  const { c, token } = await login(creds, fetchFn);
+  if (kind === 'profile') {
+    const p = failIfError(await c.get(token, 'profile', { locale: 'fr' }), 'Profil');
+    const flatP = {};
+    const walk = (o, depth = 0) => { for (const [k, v] of Object.entries(o ?? {})) { if (v && typeof v === 'object' && !Array.isArray(v) && depth < 2) walk(v, depth + 1); else if (!(k in flatP)) flatP[k] = v; } };
+    walk(p);
+    const fields = genericFields(flatP);
+    return debug ? { items: [{ id: 'profil', title: '', fields }], shape: shapeOf(p) } : { items: [{ id: 'profil', title: '', fields }] };
+  }
+  const type = ACCOUNT_KINDS[kind];
+  if (!type) throw new Error('Rubrique inconnue');
+  let res, lastErr;
+  for (const [path, params] of [['accountPage', { type, pageNo: 1, pageSize: 100, locale: 'fr' }], [type, { locale: 'fr' }]]) {
+    try { res = failIfError(await c.get(token, path, params), 'Rubrique'); break; } catch (e) { lastErr = e; }
+  }
+  if (!res) throw lastErr;
+  const items = parseAccountItems(res);
+  return debug ? { items, shape: shapeOf(res) } : { items, total: res.total ?? items.length };
+}
+
+// Favoris (« listes » du portail).
+export function parseBaskets(list) {
+  const arr = Array.isArray(list) ? list : list?.items ?? list?.baskets ?? [];
+  return arr.map((b) => ({
+    id: String(b.id ?? b.basketId ?? ''),
+    name: String(b.title ?? b.name ?? b.label ?? b.properties?.title ?? b.properties?.name ?? 'Liste'),
+    count: Number(b.size ?? b.count ?? b.nbItems ?? b.properties?.size ?? b.properties?.count ?? 0) || 0,
+  })).filter((b) => b.id);
+}
+
+export async function basketOp(creds, body, fetchFn = fetch, debug = false) {
+  const { action } = body;
+  const idOk = (v) => typeof v === 'string' && /^[A-Za-z0-9_:.\-]{1,160}$/.test(v);
+  const { c, token } = await login(creds, fetchFn);
+  const lists = async () => parseBaskets(failIfError(await c.get(token, 'basketlist', { locale: 'fr' }), 'Favoris'));
+  switch (action) {
+    case 'list': {
+      if (!debug) return { baskets: await lists() };
+      const raw = await c.get(token, 'basketlist', { locale: 'fr' });
+      return { baskets: parseBaskets(raw), shape: shapeOf(raw) };
+    }
+    case 'create': {
+      const title = String(body.title ?? '').trim().slice(0, 80);
+      if (!title) throw new Error('Donne un nom à la liste');
+      const iids = idOk(body.docId) ? [body.docId] : undefined;
+      failIfError(await c.post(token, 'updateBasket', { title, ...(iids ? { iids } : {}) }), 'Favoris');
+      return { baskets: await lists() };
+    }
+    case 'add': {
+      if (!idOk(body.basketId) || !idOk(body.docId)) throw new Error('Liste ou document invalide');
+      const r = failIfError(await c.post(token, 'addToBasket', { id: body.basketId, iids: [body.docId] }), 'Favoris');
+      return { added: Array.isArray(r) ? r.length : 1 };
+    }
+    case 'remove': {
+      if (!idOk(body.basketId) || !idOk(body.docId)) throw new Error('Liste ou document invalide');
+      failIfError(await c.post(token, 'deleteFromBasket', { id: body.basketId, iids: [body.docId] }), 'Favoris');
+      return { removed: true };
+    }
+    case 'rename': {
+      if (!idOk(body.basketId)) throw new Error('Liste invalide');
+      failIfError(await c.post(token, 'renameBasket', { id: body.basketId, name: String(body.name ?? '').trim().slice(0, 80) }), 'Favoris');
+      return { baskets: await lists() };
+    }
+    case 'delete': {
+      if (!idOk(body.basketId)) throw new Error('Liste invalide');
+      failIfError(await c.post(token, 'deleteBaskets', { id: body.basketId }), 'Favoris');
+      return { baskets: await lists() };
+    }
+    case 'content': {
+      if (!idOk(body.basketId)) throw new Error('Liste invalide');
+      let res, lastErr;
+      for (const q of [body.basketId, `basket:${body.basketId}`]) {
+        try { res = failIfError(await c.post(token, 'search', { query: [q], queryid: 'NONE', sf: '*', includeFacets: false, pageNo: 1, pageSize: 100, locale: 'fr' }), 'Favoris'); if ((res.resultSet ?? []).length || q !== body.basketId) break; } catch (e) { lastErr = e; }
+      }
+      if (!res) throw lastErr;
+      const results = parseSearch(res);
+      return debug ? { results, shape: shapeOf(res) } : { results };
+    }
+    default: throw new Error('Action inconnue');
+  }
+}

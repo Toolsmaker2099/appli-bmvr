@@ -20,7 +20,7 @@ const shortDate = (iso) => parse(iso).toLocaleDateString('fr-FR', { day: 'numeri
 const rel = (d) => (d < 0 ? `En retard de ${-d} jour${d < -1 ? 's' : ''}` : d === 0 ? "À rendre aujourd'hui" : d === 1 ? 'À rendre demain' : `À rendre dans ${d} jours`);
 
 // ---------- navigation par onglets ----------
-const TITLES = { accueil: 'Accueil', prets: 'Mes prêts', resa: 'Mes réservations', chercher: 'Chercher et réserver', compte: 'Compte' };
+const TITLES = { accueil: 'Accueil', prets: 'Mes prêts', resa: 'Mes réservations', chercher: 'Chercher et réserver', espace: 'Mon espace', compte: 'Compte' };
 function go() {
   const tab = TITLES[location.hash.slice(1)] ? location.hash.slice(1) : 'accueil';
   for (const t of Object.keys(TITLES)) $('view-' + t).hidden = t !== tab;
@@ -33,6 +33,7 @@ function go() {
   if (tab === 'prets') openLoans(); // les prêts ne sont lus que lorsqu'on ouvre leur onglet
   if (tab === 'resa') openReservations();
   if (tab === 'chercher') openSearch();
+  if (tab === 'espace') openEspace();
 }
 addEventListener('hashchange', go);
 
@@ -371,10 +372,13 @@ function searchCard(item) {
   else if (item.availability) chip(item.availability === 'available' ? '✓ Document disponible dans un des établissements du réseau' : 'Aucun exemplaire disponible actuellement', item.availability === 'available' ? 'good' : 'warn');
   if (chips.children.length) li.append(chips);
   const row = el('div', 'btn-row');
+  const fav = el('button', 'secondary small fav-btn', '♡ Favoris');
+  fav.onclick = () => { fav.remove(); favSheet(item, li); };
+  row.append(fav); li.append(row);
   if (item.reservable !== false) {
     const btn = el('button', 'primary small', 'Réserver');
     btn.onclick = () => { btn.remove(); reserveSheet(item, li); };
-    row.append(btn); li.append(row);
+    row.append(btn);
   }
   return li;
 }
@@ -392,6 +396,124 @@ $('searchForm').onsubmit = async (ev) => {
     for (const it of data.results) $('searchList').append(searchCard(it));
   } catch (e) { $('searchStatus').textContent = 'Recherche impossible : ' + e.message; }
 };
+
+
+// ---------- favoris ----------
+function favSheet(item, li, row) {
+  const sheet = el('div', 'sheet');
+  const msg = el('p', 'hint msg', 'Chargement de vos listes…');
+  sheet.append(msg); li.append(sheet);
+  call('/basket', { action: 'list' }).then(({ baskets }) => {
+    sheet.replaceChildren();
+    const sel = el('select');
+    baskets.forEach((b) => sel.append(new Option(b.name, b.id)));
+    sel.append(new Option('➕ Nouvelle liste…', '__new'));
+    const lab = el('label', '', 'Ajouter à la liste'); lab.append(sel); sheet.append(lab);
+    const nameBox = el('input'); nameBox.placeholder = 'Nom de la nouvelle liste'; nameBox.hidden = baskets.length > 0;
+    if (!baskets.length) sel.value = '__new';
+    sel.onchange = () => { nameBox.hidden = sel.value !== '__new'; };
+    sheet.append(nameBox);
+    const ok = el('button', 'primary small', 'Ajouter'); ok.style.marginTop = '12px';
+    const out = el('p', 'hint msg');
+    ok.onclick = async () => {
+      ok.disabled = true; out.textContent = '';
+      try {
+        if (sel.value === '__new') {
+          if (!nameBox.value.trim()) throw new Error('Donnez un nom à la liste.');
+          await call('/basket', { action: 'create', title: nameBox.value.trim(), docId: item.id });
+        } else await call('/basket', { action: 'add', basketId: sel.value, docId: item.id });
+        sheet.replaceChildren(el('p', 'hint ok', '✓ Ajouté aux favoris.'));
+      } catch (e) { out.textContent = e.message; out.className = 'hint msg err'; ok.disabled = false; }
+    };
+    sheet.append(ok, out);
+  }).catch((e) => { msg.textContent = e.message; msg.className = 'hint msg err'; });
+}
+
+// ---------- mon espace ----------
+const ESPACE = { favoris: 'Favoris', loanhistory: 'Historique des prêts', messages: 'Messages de la bibliothèque', fines: 'Amendes', profile: 'Mon profil' };
+let espaceKind = store.get('espaceKind') || 'favoris';
+
+function plainCard(it) {
+  const li = el('li', 'card');
+  if (it.title || it.coverId || it.isbn) {
+    const head = el('div', 'card-head'); const t = el('div', 'card-title');
+    if (it.title) t.append(el('h3', '', it.title));
+    if (it.author) t.append(el('p', '', it.author));
+    if (it.coverId || it.isbn) head.append(cover(it));
+    head.append(t); li.append(head);
+  }
+  const r = rows(it.fields); if (r) li.append(r);
+  return li;
+}
+
+async function showBaskets(body, status) {
+  const render = (baskets) => {
+    body.replaceChildren();
+    const add = el('button', 'primary small', '➕ Nouvelle liste'); add.style.margin = '0 0 12px';
+    add.onclick = async () => {
+      const name = prompt('Nom de la nouvelle liste ?'); if (!name || !name.trim()) return;
+      try { render((await call('/basket', { action: 'create', title: name.trim() })).baskets); } catch (e) { status.textContent = e.message; }
+    };
+    body.append(add);
+    const ul = el('ul', 'cards');
+    if (!baskets.length) { const li = el('li', 'hero'); li.append(el('strong', '', 'Aucune liste'), el('p', '', 'Créez une liste, ou ajoutez un document depuis l’onglet Chercher (bouton ♡).')); ul.append(li); }
+    for (const b of baskets) {
+      const li = el('li', 'card');
+      const head = el('div', 'card-head'); const t = el('div', 'card-title');
+      t.append(el('h3', '', b.name)); if (b.count) t.append(el('p', '', `${b.count} document${b.count > 1 ? 's' : ''}`));
+      head.append(t); li.append(head);
+      const row = el('div', 'btn-row');
+      const open = el('button', 'primary small', 'Ouvrir');
+      const ren = el('button', 'secondary small', 'Renommer');
+      const del = el('button', 'secondary small danger', 'Supprimer');
+      open.onclick = () => showBasket(body, status, b);
+      ren.onclick = async () => { const n = prompt('Nouveau nom ?', b.name); if (!n || !n.trim()) return; try { render((await call('/basket', { action: 'rename', basketId: b.id, name: n.trim() })).baskets); } catch (e) { status.textContent = e.message; } };
+      del.onclick = async () => { if (!confirm(`Supprimer la liste « ${b.name} » ?`)) return; try { render((await call('/basket', { action: 'delete', basketId: b.id })).baskets); } catch (e) { status.textContent = e.message; } };
+      row.append(open, ren, del); li.append(row); ul.append(li);
+    }
+    body.append(ul); status.textContent = '';
+  };
+  status.textContent = 'Chargement de vos favoris…';
+  try { render((await call('/basket', { action: 'list' })).baskets); } catch (e) { status.textContent = 'Impossible de charger les favoris : ' + e.message; }
+}
+
+async function showBasket(body, status, b) {
+  body.replaceChildren(); status.textContent = `Chargement de « ${b.name} »…`;
+  const back = el('button', 'secondary small', '← Mes listes'); back.style.margin = '0 0 12px';
+  back.onclick = () => showBaskets(body, status);
+  try {
+    const { results } = await call('/basket', { action: 'content', basketId: b.id });
+    body.append(back);
+    const ul = el('ul', 'cards');
+    if (!results.length) { const li = el('li', 'hero'); li.append(el('strong', '', 'Liste vide')); ul.append(li); }
+    for (const it of results) {
+      const li = searchCard(it);
+      const row = el('div', 'btn-row');
+      const rm = el('button', 'secondary small danger', 'Retirer de la liste');
+      rm.onclick = async () => { rm.disabled = true; try { await call('/basket', { action: 'remove', basketId: b.id, docId: it.id }); li.remove(); } catch (e) { rm.disabled = false; status.textContent = e.message; } };
+      row.append(rm); li.append(row); ul.append(li);
+    }
+    body.append(ul); status.textContent = `${b.name} · ${results.length} document${results.length > 1 ? 's' : ''}`;
+  } catch (e) { body.append(back); status.textContent = 'Impossible de charger la liste : ' + e.message; }
+}
+
+async function openEspace() {
+  const body = $('espaceBody'), status = $('espaceStatus');
+  document.querySelectorAll('#seg button').forEach((b) => b.classList.toggle('on', b.dataset.k === espaceKind));
+  body.replaceChildren(); status.textContent = '';
+  if (!hasCreds()) return needLogin(body, status);
+  if (espaceKind === 'favoris') return showBaskets(body, status);
+  status.textContent = 'Chargement…';
+  try {
+    const d = await call('/account', { kind: espaceKind });
+    const ul = el('ul', 'cards');
+    const items = d.items.filter((it) => it.title || it.fields.length);
+    if (!items.length) { const li = el('li', 'hero'); li.append(el('strong', '', espaceKind === 'fines' ? 'Aucune amende' : 'Rien à afficher')); ul.append(li); }
+    for (const it of items) ul.append(plainCard(it));
+    body.append(ul); status.textContent = ESPACE[espaceKind];
+  } catch (e) { status.textContent = 'Impossible de charger : ' + e.message; }
+}
+document.querySelectorAll('#seg button').forEach((b) => { b.onclick = () => { espaceKind = b.dataset.k; store.set('espaceKind', espaceKind); openEspace(); }; });
 
 // ---------- compte ----------
 function signOut() { ['user', 'pass', 'cache', 'resaCache', 'lastTrace'].forEach(store.del); updateBadge(); }
