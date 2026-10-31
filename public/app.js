@@ -279,9 +279,56 @@ function renderLoans(data, note = '') {
   if (!data.loans.length) {
     list.append(emptyState('📚', 'Aucun prêt en cours', 'Vos emprunts apparaîtront ici.'));
   }
-  for (const l of data.loans) list.append(card(l));
+  const byLi = new Map();
+  for (const l of data.loans) { const li = card(l); byLi.set(l.documentNumber, li); list.append(li); }
+  setupSelection(data, byLi);
   $('status').textContent = `${data.loans.length} prêt${data.loans.length > 1 ? 's' : ''} · mis à jour ${new Date(data.fetchedAt).toLocaleString('fr-FR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}${note}`;
   updateBadge();
+}
+
+// ---------- prolongation en masse : sélection de prêts ----------
+const LSEL = { on: false, picked: new Set() };
+function setupSelection(data, byLi) {
+  const tools = $('loanTools'), bar = $('selBar');
+  const renewable = data.loans.filter((l) => l.canRenew && l.documentNumber);
+  tools.replaceChildren(); bar.replaceChildren(); tools.hidden = renewable.length < 2; bar.hidden = true;
+  if (renewable.length < 2) { LSEL.on = false; LSEL.picked.clear(); return; }
+  LSEL.picked = new Set([...LSEL.picked].filter((id) => renewable.some((l) => l.documentNumber === id)));
+  const paint = () => {
+    for (const l of renewable) {
+      const li = byLi.get(l.documentNumber); if (!li) continue;
+      li.classList.toggle('selectable', LSEL.on); li.classList.toggle('picked', LSEL.on && LSEL.picked.has(l.documentNumber));
+      let cb = li.querySelector('.sel-box');
+      if (LSEL.on && !cb) { cb = el('span', 'sel-box'); li.prepend(cb); li.onclick = (e) => { if (e.target.closest('button,a,summary')) return; toggle(l.documentNumber); }; }
+      if (cb) cb.textContent = LSEL.picked.has(l.documentNumber) ? '✓' : '';
+      if (!LSEL.on) { cb?.remove(); li.onclick = null; }
+    }
+    tools.replaceChildren();
+    if (!LSEL.on) { const b = el('button', 'fchip', '☑ Prolonger plusieurs prêts'); b.onclick = () => { LSEL.on = true; paint(); }; tools.append(b); bar.hidden = true; return; }
+    const all = el('button', 'fchip', LSEL.picked.size === renewable.length ? 'Tout désélectionner' : 'Tout sélectionner');
+    all.onclick = () => { if (LSEL.picked.size === renewable.length) LSEL.picked.clear(); else renewable.forEach((l) => LSEL.picked.add(l.documentNumber)); paint(); };
+    const cancel = el('button', 'fchip', 'Annuler'); cancel.onclick = () => { LSEL.on = false; LSEL.picked.clear(); paint(); };
+    tools.append(all, cancel);
+    bar.hidden = false; bar.replaceChildren();
+    const go = el('button', 'primary', LSEL.picked.size ? `Prolonger la sélection (${LSEL.picked.size})` : 'Choisissez des prêts à prolonger'); go.disabled = !LSEL.picked.size;
+    go.onclick = () => renewSelected(renewable, go);
+    bar.append(go);
+  };
+  const toggle = (id) => { if (LSEL.picked.has(id)) LSEL.picked.delete(id); else LSEL.picked.add(id); paint(); };
+  paint();
+}
+async function renewSelected(renewable, btn) {
+  const ids = [...LSEL.picked]; if (!ids.length) return;
+  const names = ids.map((id) => renewable.find((l) => l.documentNumber === id)?.title).filter(Boolean);
+  if (!confirm(`Prolonger ${ids.length} prêt${ids.length > 1 ? 's' : ''} ?\n\n${names.map((n) => '• ' + n).join('\n')}\n\nCette action modifie votre compte à la bibliothèque.`)) return;
+  btn.disabled = true; btn.textContent = 'Prolongation en cours…';
+  try {
+    const { results } = await call('/renew-many', { documentIds: ids });
+    const ok = results.filter((r) => r.extended).length;
+    const lines = results.map((r) => { const l = renewable.find((x) => x.documentNumber === r.documentId); return `${r.extended ? '✓' : '✗'} ${l?.title || r.documentId}${r.extended ? (r.newReturnDate ? ` · nouveau retour le ${longDate(r.newReturnDate)}` : '') : ' : ' + (r.warnings.map((w) => RENEW_WARNINGS[w]).filter(Boolean).join(' ') || r.message || 'refusé')}`; });
+    alert(`${ok} prêt${ok > 1 ? 's' : ''} prolongé${ok > 1 ? 's' : ''} sur ${results.length}.\n\n${lines.join('\n')}`);
+    LSEL.on = false; LSEL.picked.clear(); store.del('cache'); openLoans();
+  } catch (e) { alert(e.message); btn.disabled = false; btn.textContent = `Prolonger la sélection (${ids.length})`; }
 }
 
 let loading = false;

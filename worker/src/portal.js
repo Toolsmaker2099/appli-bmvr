@@ -313,6 +313,21 @@ async function followChain(start, fetchFn, trace) {
   }
 }
 
+// Prolongation de plusieurs prêts en une connexion : un résultat par document (jamais d'arrêt au premier refus).
+export async function renewMany(creds, documentIds, fetchFn = fetch) {
+  const ids = [...new Set((Array.isArray(documentIds) ? documentIds : []).map(String))].slice(0, 20);
+  if (!ids.length || ids.some((id) => !/^[A-Za-z0-9_-]{1,40}$/.test(id))) throw new Error('Sélection invalide');
+  const { c, token } = await login({ ...creds, cache: false }, fetchFn);
+  const results = [];
+  for (const documentId of ids) {
+    try {
+      const r = await c.get(token, 'renewLoan', { documentId });
+      results.push({ documentId, extended: r.extended === true, newReturnDate: toISODate(r.newReturnDate), warnings: Array.isArray(r.warnings) ? r.warnings : [], message: r.errorReponse ? String(r.error || '') : r.faultString || '' });
+    } catch (e) { results.push({ documentId, extended: false, warnings: [], message: String(e.message).slice(0, 120) }); }
+  }
+  return { results };
+}
+
 // Prolongation d'un prêt (même appel que le bouton « Prolonger » du portail). documentId = numéro de document du prêt.
 export async function renewLoan({ username, password }, documentId, fetchFn = fetch) {
   if (!/^[A-Za-z0-9_-]{1,40}$/.test(documentId ?? '')) throw new Error('Document invalide');

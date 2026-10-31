@@ -1,4 +1,4 @@
-import { fetchLoans, fetchServiceUrl, renewLoan, diagnose, fetchReservations, cancelReservation, searchCatalogue, reserveInfo, reserveRank, makeReservation, fetchAccount, deleteMessage, withSession, basketOp, fetchNotice, AuthError } from './portal.js';
+import { fetchLoans, fetchServiceUrl, renewLoan, renewMany, diagnose, fetchReservations, cancelReservation, searchCatalogue, reserveInfo, reserveRank, makeReservation, fetchAccount, deleteMessage, withSession, basketOp, fetchNotice, AuthError } from './portal.js';
 
 // Relais multi-utilisateurs sans état : l'appli envoie les identifiants BMVR de la personne à chaque requête (HTTPS),
 // le relais s'en sert pour interroger le portail puis les oublie. Rien n'est stocké ni journalisé.
@@ -23,7 +23,7 @@ export default {
     if (req.method === 'OPTIONS') return new Response(null, { status: ok ? 204 : 403, headers: cors });
 
     const url = new URL(req.url);
-    if (req.method !== 'POST' || !['/loans', '/service', '/renew', '/reservations', '/cancel', '/search', '/reserve-info', '/reserve-rank', '/reserve', '/account', '/delete-message', '/basket', '/notice'].includes(url.pathname)) return json({ error: 'introuvable' }, 404, cors);
+    if (req.method !== 'POST' || !['/loans', '/service', '/renew', '/renew-many', '/reservations', '/cancel', '/search', '/reserve-info', '/reserve-rank', '/reserve', '/account', '/delete-message', '/basket', '/notice'].includes(url.pathname)) return json({ error: 'introuvable' }, 404, cors);
     if (!ok) return json({ error: 'origine non autorisée' }, 403, cors);
 
     // Limite de débit (par adresse, en mémoire de l'instance) : freine les abus sans rien stocker de durable.
@@ -50,6 +50,7 @@ export default {
       if (url.pathname === '/delete-message') return json(await deleteMessage(who, body.id), 200, cors);
       if (url.pathname === '/basket') return json(await withSession(who, (w) => basketOp(w, body, fetch, body.debug === true)), 200, cors);
       if (url.pathname === '/notice') return json(await withSession(who, (w) => fetchNotice(w, body.id, fetch, body.debug === true)), 200, cors);
+      if (url.pathname === '/renew-many') return json(await renewMany({ username, password }, body.documentIds), 200, cors);
       if (url.pathname === '/renew') return json(await renewLoan({ username, password }, body.documentId), 200, cors);
       if (url.pathname === '/service') {
         const trace = [];

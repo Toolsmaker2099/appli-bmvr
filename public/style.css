@@ -213,3 +213,13 @@ details[open]>summary.acc{border-bottom-left-radius:0;border-bottom-right-radius
 .scan-frame{position:absolute;width:76%;height:22vh;border:3px solid #fff;border-radius:14px;box-shadow:0 0 0 9999px rgba(0,0,0,.35);pointer-events:none}
 .scan-hint{color:#fff;margin:0;text-align:center;position:relative}
 .scanbox .primary{max-width:320px}
+
+/* prolongation en masse */
+.loantools{display:flex;gap:8px;flex-wrap:wrap;margin:6px 0 4px}
+.card.selectable{cursor:pointer;position:relative}
+.card.picked{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent)}
+.sel-box{position:absolute;right:12px;top:12px;width:28px;height:28px;border-radius:50%;border:2px solid var(--muted);background:var(--card);display:grid;place-items:center;font-weight:700;color:var(--accent-fg);z-index:2}
+.card.picked .sel-box{background:var(--accent);border-color:var(--accent)}
+.selbar{position:sticky;bottom:calc(76px + env(safe-area-inset-bottom));padding:10px 0;z-index:5}
+.selbar .primary{margin-top:0;box-shadow:0 4px 14px rgba(0,0,0,.25)}
+.selbar .primary:disabled{opacity:.6}
