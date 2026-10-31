@@ -148,6 +148,12 @@ export async function diagnose({ username, password }, fetchFn = fetch) {
   const step = async (label, fn) => {
     try { const r = await fn(); out.steps.push(r?.errorReponse ? { label, ok: false, code: r.code, error: String(r.error).slice(0, 200) } : { label, ok: true, shape: shapeOf(r) }); return r; } catch (e) { out.steps.push({ label, ok: false, error: e.message.slice(0, 250) }); }
   };
+  // L'adresse de sortie de Cloudflare change-t-elle entre deux appels ? (seulement le nombre d'adresses distinctes est renvoyé)
+  try {
+    const ips = new Set();
+    for (let i = 0; i < 4; i++) ips.add((await (await fetchFn('https://api.ipify.org')).text()).trim());
+    out.egressDistinctIps = ips.size;
+  } catch (e) { out.egressDistinctIps = 'inconnu'; }
   for (const aspect of ['loans', 'accountSummary', 'rights', 'profile']) {
     await step(`${aspect} locale=fr`, () => c.get(session.token, aspect, { locale: 'fr' }));
     await step(`${aspect} sans paramètre`, () => c.get(session.token, aspect, {}));
