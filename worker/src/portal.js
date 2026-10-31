@@ -704,7 +704,7 @@ export async function deleteMessage(creds, messageId, fetchFn = fetch) {
   const hit = list.find((m) => String((m?.data ?? m)?.number ?? m?.number) === num);
   const d = hit?.data ?? hit ?? {};
   // Le portail attend l'identifiant propre au message : on essaie ceux que porte l'élément, puis le numéro.
-  const cands = [...new Set([hit?.id, hit?.messageId, d.id, d.messageId, d.guid, d.uid, d.number, num].filter((v) => v != null && v !== '').map(String))];
+  const cands = [...new Set([hit?.uniqueId, d.uniqueId, hit?.id, hit?.messageId, d.id, d.messageId, d.guid, d.uid, d.number, num].filter((v) => v != null && v !== '').map(String))];
   const errs = [];
   for (const cand of cands) {
     try {
