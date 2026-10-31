@@ -521,7 +521,7 @@ export async function reserveInfo(creds, id, fetchFn = fetch, debug = false) {
 export async function reserveRank(creds, { id, volume, branch, copyNo }, fetchFn = fetch) {
   check(id);
   const { c, token } = await login(creds, fetchFn);
-  const r = await c.post(token, 'reservationRankWithStatus', { id, volume: volume || null, branch, ...(copyNo ? { serialCopyNo: copyNo, monographicCopyNo: copyNo } : {}) });
+  const r = await c.post(token, 'reservationRankWithStatus', { id, volume: volume || null, branch, ...(copyNo ? { monographicCopyNo: copyNo } : {}) });
   return { ok: r.status !== false, rank: r.rank ?? null };
 }
 
@@ -530,7 +530,7 @@ export async function makeReservation(creds, { id, volume, branch, copyNo }, fet
   check(id);
   if (!/^[A-Za-z0-9_-]{1,20}$/.test(branch ?? '')) throw new Error('Bibliothèque de retrait invalide');
   const { c, token } = await login(creds, fetchFn);
-  const r = await c.post(token, 'makeReservation', { id, volume: volume || null, branch, ...(copyNo ? { serialCopyNo: copyNo, monographicCopyNo: copyNo } : {}), locale: 'fr' });
+  const r = await c.post(token, 'makeReservation', { id, volume: volume || null, branch, ...(copyNo ? { monographicCopyNo: copyNo } : {}), locale: 'fr' });
   failIfError(r, 'Réservation');
   return { done: r.inSuccess === true };
 }
