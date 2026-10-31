@@ -78,3 +78,4 @@ pre{white-space:pre-wrap;word-break:break-word;background:var(--card);border:1px
 .sheet{padding:0 14px 14px}.sheet label{display:block;margin-top:10px;font-size:.9rem}
 .sheet select{display:block;width:100%;margin-top:4px;padding:11px;border-radius:12px;border:1px solid var(--line);background:var(--card);color:var(--fg);font:inherit}
 .sheet .msg{margin:10px 0 0}
+.copies{margin:6px 0 0;padding-left:18px;font-size:.85rem;color:var(--muted)}

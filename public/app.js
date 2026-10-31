@@ -304,6 +304,13 @@ function reserveSheet(item, li) {
       sheet.append(el('p', 'hint err', info.traps[0] || "La bibliothèque n'autorise pas la réservation de ce document pour le moment."));
       return;
     }
+    if (info.copies.length) {
+      const det = el('details'); det.open = true;
+      det.append(el('summary', '', `${info.copies.length} exemplaire${info.copies.length > 1 ? 's' : ''} (${info.copies.filter((c) => c.available).length} disponible${info.copies.filter((c) => c.available).length > 1 ? 's' : ''})`));
+      const ul = el('ul', 'copies');
+      for (const c of info.copies) ul.append(el('li', '', [c.branch, c.place, c.callNumber, c.available ? 'Disponible' : c.status || 'Sorti', c.due && !c.available ? `retour le ${shortDate(c.due)}` : ''].filter(Boolean).join(' · ')));
+      det.append(ul); sheet.append(det);
+    }
     let volSel = null;
     if (info.volumes.length > 1) {
       const l = el('label', '', 'Volume'); volSel = el('select');
@@ -318,7 +325,7 @@ function reserveSheet(item, li) {
     const refresh = async () => {
       rank.textContent = '';
       try {
-        const r = await call('/reserve-rank', { id: item.id, volume: volSel?.value, branch: brSel.value });
+        const r = await call('/reserve-rank', { id: item.id, volume: volSel?.value, branch: brSel.value, copyNo: info.copyNo });
         rank.textContent = r.ok ? (r.rank ? `Vous seriez n° ${r.rank} dans la file d’attente.` : 'Disponible ou sans file d’attente.') : "Ce choix n'est pas réservable.";
       } catch {}
     };
@@ -331,7 +338,7 @@ function reserveSheet(item, li) {
       if (!confirm(`Réserver « ${item.title} » pour un retrait à ${name} ?\nCette action modifie votre compte à la bibliothèque.`)) return;
       ok.disabled = true; ok.textContent = 'Réservation…'; out.textContent = '';
       try {
-        const r = await call('/reserve', { id: item.id, volume: volSel?.value, branch: brSel.value });
+        const r = await call('/reserve', { id: item.id, volume: volSel?.value, branch: brSel.value, copyNo: info.copyNo });
         if (!r.done) throw new Error('La bibliothèque a refusé la réservation.');
         store.set('pickup', brSel.value); store.del('resaCache');
         sheet.replaceChildren(el('p', 'hint ok', `✓ Réservé. Retrait à ${name}. Retrouvez-la dans l’onglet Réservations.`));

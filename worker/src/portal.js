@@ -429,44 +429,72 @@ export async function searchCatalogue(creds, query, fetchFn = fetch, debug = fal
 const ID_RE = /^[A-Za-z0-9_:.\-]{1,80}$/;
 const check = (id) => { if (!ID_RE.test(id ?? '')) throw new Error('Document invalide'); };
 
-// Étape 1 d'une réservation : volumes éventuels, bibliothèques de retrait possibles, avertissements.
+// Exemplaires du document (aspect « Stock » de la notice) : le portail réserve toujours un exemplaire précis.
+export function parseCopies(stock) {
+  const out = [];
+  for (const grp of stock?.monographicCopies ?? []) {
+    const g = grp.data ?? {};
+    for (const ch of grp.children ?? []) {
+      const d = ch.data ?? {};
+      const no = String(d.copyNumber ?? '').trim();
+      if (!no) continue;
+      out.push({
+        no,
+        branch: String(g.branchDesc || d.branchDesc || g.branch || d.branch || ''),
+        place: String(d.subloca || g.subloca || ''),
+        callNumber: String(d.callNumber || d.cote || ''),
+        status: String(d.statDesc || d.statusDescription || d.stat || ''),
+        available: String(d.stat ?? '').toLowerCase() === 'available',
+        due: toISODate(d.dueDate ?? d.returnDate, d.dateFormat),
+        fields: Object.entries(d).filter(([k, v]) => typeof v !== 'object' && v !== '' && v != null && !/^(copyNumber|document|stat|dateFormat)$/.test(k)).map(([k, v]) => [pretty(k), String(v).slice(0, 200)]),
+      });
+    }
+  }
+  return out;
+}
+
+// Étape 1 d'une réservation : exemplaires, volumes éventuels, bibliothèques de retrait possibles, avertissements.
 export async function reserveInfo(creds, id, fetchFn = fetch, debug = false) {
   check(id);
   const { c, token } = await login(creds, fetchFn);
+  let stock = null; const errs = [];
+  try { stock = failIfError(await c.get(token, 'notice', { id, locale: 'fr', aspect: 'Stock' }), 'Exemplaires'); } catch (e) { errs.push(`Stock: ${e.message.slice(0, 80)}`); }
+  const copies = parseCopies(stock);
   const vols = await c.post(token, 'reservationVolumes', { id, locale: 'fr' }).catch((e) => ({ errorReponse: true, error: e.message }));
-  // Le portail est capricieux sur la forme de cet appel : on essaie plusieurs variantes et on garde la première qui répond.
-  let choices; const errs = [];
-  for (const [how, call] of [
-    ['POST', () => c.post(token, 'reservationChoices', { id, locale: 'fr' })],
-    ['POST+vide', () => c.post(token, 'reservationChoices', { id, serialCopyNo: '', locale: 'fr' })],
-    ['POST+null', () => c.post(token, 'reservationChoices', { id, serialCopyNo: null, locale: 'fr' })],
-    ['GET', () => c.get(token, 'reservationChoices', { id, locale: 'fr' })],
-    ['GET+vide', () => c.get(token, 'reservationChoices', { id, serialCopyNo: '', locale: 'fr' })],
-  ]) {
-    try { const r = await call(); if (!r?.errorReponse) { choices = r; break; } errs.push(`${how}: ${String(r.error || r.code).slice(0, 80)}`); } catch (e) { errs.push(`${how}: ${e.message.replace(/^Portail: reservationChoices → /, '').slice(0, 80)}`); }
+  // Le portail réserve un exemplaire précis : on essaie d'abord ceux qui ne sont pas disponibles (déjà sortis), puis les autres, puis sans exemplaire.
+  const candidates = [...copies.filter((x) => !x.available), ...copies.filter((x) => x.available)].slice(0, 4).map((x) => x.no);
+  let choices, copyNo = '';
+  for (const no of [...candidates, '']) {
+    for (const [how, call] of [
+      ['POST', () => c.post(token, 'reservationChoices', { id, ...(no ? { serialCopyNo: no } : {}), locale: 'fr' })],
+      ...(no ? [] : [['GET', () => c.get(token, 'reservationChoices', { id, locale: 'fr' })]]),
+    ]) {
+      try { const r = await call(); if (!r?.errorReponse) { choices = r; copyNo = no; break; } errs.push(`${how} ${no}: ${String(r.error || r.code).slice(0, 80)}`); } catch (e) { errs.push(`${how} ${no}: ${e.message.replace(/^Portail: reservationChoices → /, '').slice(0, 60)}`); }
+    }
+    if (choices) break;
   }
-  if (!choices) throw new Error(`Réservation : le portail refuse de proposer des lieux de retrait pour ce document (${errs.join(' | ')})`);
+  if (!choices) throw new Error(`Réservation : le portail ne propose pas de lieu de retrait pour ce document (${copies.length} exemplaire${copies.length > 1 ? 's' : ''} ; ${errs.join(' | ')})`);
   const volumes = Array.isArray(vols) ? vols.map((v) => String(v.volume ?? '')).filter(Boolean) : [];
   const branches = (choices.branchList ?? []).map((b) => ({ code: String(b.branchCode ?? ''), name: String(b.branchDesc_fre || b.branchDesc || b.branchCode || '').replace(new RegExp(`^${b.branchCode ?? ''}\\s*-\\s*`), '') }));
   const traps = (choices.trapList ?? []).map((t) => readable(String(t.trapMessage ?? ''))).filter(Boolean);
-  const out = { volumes, branches, traps, blocked: choices.userTrapLevel === 'Error' && traps.length > 0 };
-  return debug ? { ...out, shape: { volumes: shapeOf(vols), choices: shapeOf(choices) } } : out;
+  const out = { copyNo, copies, volumes, branches, traps, blocked: choices.userTrapLevel === 'Error' && traps.length > 0 };
+  return debug ? { ...out, shape: { stock: shapeOf(stock), volumes: shapeOf(vols), choices: shapeOf(choices) } } : out;
 }
 
 // Rang dans la file d'attente pour un choix donné.
-export async function reserveRank(creds, { id, volume, branch }, fetchFn = fetch) {
+export async function reserveRank(creds, { id, volume, branch, copyNo }, fetchFn = fetch) {
   check(id);
   const { c, token } = await login(creds, fetchFn);
-  const r = await c.post(token, 'reservationRankWithStatus', { id, volume: volume || null, branch });
+  const r = await c.post(token, 'reservationRankWithStatus', { id, volume: volume || null, branch, ...(copyNo ? { serialCopyNo: copyNo, monographicCopyNo: copyNo } : {}) });
   return { ok: r.status !== false, rank: r.rank ?? null };
 }
 
 // Réservation effective.
-export async function makeReservation(creds, { id, volume, branch }, fetchFn = fetch) {
+export async function makeReservation(creds, { id, volume, branch, copyNo }, fetchFn = fetch) {
   check(id);
   if (!/^[A-Za-z0-9_-]{1,20}$/.test(branch ?? '')) throw new Error('Bibliothèque de retrait invalide');
   const { c, token } = await login(creds, fetchFn);
-  const r = await c.post(token, 'makeReservation', { id, volume: volume || null, branch, locale: 'fr' });
+  const r = await c.post(token, 'makeReservation', { id, volume: volume || null, branch, ...(copyNo ? { serialCopyNo: copyNo, monographicCopyNo: copyNo } : {}), locale: 'fr' });
   failIfError(r, 'Réservation');
   return { done: r.inSuccess === true };
 }
