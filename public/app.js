@@ -351,6 +351,13 @@ function searchCard(item) {
   if (meta) t.append(el('span', 'due', meta));
   head.append(cover(item), t);
   li.append(head);
+  const main = rows(item.fields.slice(0, 6));
+  if (main) li.append(main);
+  if (item.fields.length > 6) {
+    const det = el('details');
+    det.append(el('summary', '', 'Plus de détails'), rows(item.fields.slice(6)));
+    li.append(det);
+  }
   const row = el('div', 'btn-row');
   const btn = el('button', 'primary small', 'Réserver');
   btn.onclick = () => { btn.remove(); reserveSheet(item, li); };

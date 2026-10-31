@@ -378,20 +378,41 @@ export async function cancelReservation(creds, reservationId, fetchFn = fetch) {
   return { canceled: true };
 }
 
-// Recherche dans le catalogue.
+// Recherche dans le catalogue. Chaque résultat garde tout ce que donne le portail : les champs connus sont mis en forme,
+// les autres sont listés tels quels dans « fields ».
+const LABELS = { publisher: 'Éditeur', summary: 'Résumé', collection: 'Collection', language: 'Langue', isbn: 'ISBN', issn: 'ISSN', date: 'Date', subject: 'Sujets', genre: 'Genre', physicalDescription: 'Description', series: 'Série', edition: 'Édition', callNumber: 'Cote', ark: 'Identifiant ARK', contentType: 'Type', format: 'Format', typeOfDocumentFacet: 'Type de document' };
+const SKIP = /^(id|title|author|authorExplore|authorHits|iid|meta|stickers|thumbUrl|zmat\w*|imageSource.*|exploreQuery|.*Explore|.*Hits|rights|needsApproval|posInSet|readerEnabled|readerLabel|disable\w+|hidden\w*|score|_.*)$/i;
+const pretty = (k) => LABELS[k] ?? k.replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/_/g, ' ').replace(/^./, (c) => c.toUpperCase());
+function flat(v, depth = 0) {
+  if (v == null) return [];
+  if (Array.isArray(v)) return v.flatMap((x) => flat(x, depth + 1));
+  if (typeof v === 'object') {
+    if ('value' in v && depth < 4 && (typeof v.value !== 'object')) return flat(v.value, depth + 1);
+    return depth > 2 ? [] : Object.entries(v).filter(([k]) => !SKIP.test(k)).flatMap(([k, x]) => flat(x, depth + 1).map((t) => `${pretty(k)} : ${t}`));
+  }
+  const t = String(v).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+  return t ? [t] : [];
+}
+
 export function parseSearch(res) {
   const rows = res?.resultSet ?? [];
   return rows.map((e) => {
     const id = String(first(e.id) ?? '');
     const num = id.match(/usmarcdef_(\d+)/)?.[1];
+    const fields = [];
+    const seen = new Set();
+    const add = (label, vals) => { const v = [...new Set(vals)].join(' · ').slice(0, 600); if (v && !seen.has(label + v)) { seen.add(label + v); fields.push([label, v]); } };
+    for (const [k, v] of Object.entries(e)) if (!SKIP.test(k) && k !== 'date' && k !== 'typeOfDocumentFacet') add(pretty(k), flat(v));
+    for (const [k, v] of Object.entries(e.meta ?? {})) if (!SKIP.test(k)) add(pretty(k), flat(v));
     return {
       id,
       title: cleanTitle(first(e.title)) || 'Document',
       author: cleanAuthor(first(e.author)),
-      year: String(first(e.date) ?? first(e.year) ?? '').slice(0, 4),
-      type: String(first(e.typeOfDocumentFacet) ?? first(e.contentType) ?? first(e.format) ?? ''),
+      year: String(first(e.date) ?? first(e.year) ?? '').slice(0, 10),
+      type: flat(e.typeOfDocumentFacet ?? e.contentType ?? e.format).join(', '),
       coverId: num ? id : '',
       isbn: String(first(e.isbn) ?? '').replace(/[^0-9Xx]/g, ''),
+      fields,
     };
   }).filter((r) => r.id);
 }
@@ -413,7 +434,18 @@ export async function reserveInfo(creds, id, fetchFn = fetch, debug = false) {
   check(id);
   const { c, token } = await login(creds, fetchFn);
   const vols = await c.post(token, 'reservationVolumes', { id, locale: 'fr' }).catch((e) => ({ errorReponse: true, error: e.message }));
-  const choices = failIfError(await c.post(token, 'reservationChoices', { id, locale: 'fr' }), 'Réservation');
+  // Le portail est capricieux sur la forme de cet appel : on essaie plusieurs variantes et on garde la première qui répond.
+  let choices; const errs = [];
+  for (const [how, call] of [
+    ['POST', () => c.post(token, 'reservationChoices', { id, locale: 'fr' })],
+    ['POST+vide', () => c.post(token, 'reservationChoices', { id, serialCopyNo: '', locale: 'fr' })],
+    ['POST+null', () => c.post(token, 'reservationChoices', { id, serialCopyNo: null, locale: 'fr' })],
+    ['GET', () => c.get(token, 'reservationChoices', { id, locale: 'fr' })],
+    ['GET+vide', () => c.get(token, 'reservationChoices', { id, serialCopyNo: '', locale: 'fr' })],
+  ]) {
+    try { const r = await call(); if (!r?.errorReponse) { choices = r; break; } errs.push(`${how}: ${String(r.error || r.code).slice(0, 80)}`); } catch (e) { errs.push(`${how}: ${e.message.replace(/^Portail: reservationChoices → /, '').slice(0, 80)}`); }
+  }
+  if (!choices) throw new Error(`Réservation : le portail refuse de proposer des lieux de retrait pour ce document (${errs.join(' | ')})`);
   const volumes = Array.isArray(vols) ? vols.map((v) => String(v.volume ?? '')).filter(Boolean) : [];
   const branches = (choices.branchList ?? []).map((b) => ({ code: String(b.branchCode ?? ''), name: String(b.branchDesc_fre || b.branchDesc || b.branchCode || '').replace(new RegExp(`^${b.branchCode ?? ''}\\s*-\\s*`), '') }));
   const traps = (choices.trapList ?? []).map((t) => readable(String(t.trapMessage ?? ''))).filter(Boolean);
