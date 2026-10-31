@@ -853,7 +853,7 @@ function renderAccount() {
       const av = el('span', 'avatar'); paintAvatar(av, pr.user);
       li.append(av, el('span', 'acc-name', pr.user));
       if (pr.id === activeId()) li.append(el('span', 'chip good', 'Actif'));
-      else { const b = el('button', 'link', 'Utiliser'); b.onclick = () => switchProfile(pr.id); li.append(b); }
+      else { li.classList.add('tap'); li.tabIndex = 0; li.setAttribute('role', 'button'); li.append(el('span', 'acc-go', 'Utiliser ›')); li.onclick = () => switchProfile(pr.id); li.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); switchProfile(pr.id); } }; }
       ul.append(li);
     }
     box.append(ul);

@@ -184,3 +184,4 @@ details[open]>summary.acc{border-bottom-left-radius:0;border-bottom-right-radius
 .accounts .avatar{width:36px;height:36px;border-radius:50%;display:grid;place-items:center;font-weight:700;font-size:.8rem;flex:none}
 .accounts li.on{background:color-mix(in srgb,var(--accent) 8%,var(--card))}
 .top>div{min-width:0;flex:1}.chip-name{max-width:6.5em}h1{font-size:1.5rem}
+.accounts li.tap{cursor:pointer}.accounts li.tap:active{background:var(--chip)}.acc-go{color:var(--accent);font-weight:600;font-size:.88rem}
