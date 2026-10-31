@@ -48,6 +48,15 @@ function makeClient(apiToken, fetchFn) {
       return res.json();
     },
     cookieNames: () => [...cookies.keys()],
+    // Sonde de diagnostic : même appel, avec des variantes de l'en-tête d'autorisation / des cookies.
+    async probe(token, path, { auth, cookie, noMicrosite = false, query = '?locale=fr' }) {
+      const headers = { ...base, 'X-InMedia-Authorization': auth(token, apiToken, query), Cookie: cookie ?? cookieHeader() };
+      if (noMicrosite) delete headers['X-microsite-id'];
+      const res = await fetchFn(`${API}/api/${path}${query}&_=${Date.now()}`, { headers });
+      if (!res.ok) return { status: res.status };
+      const j = await res.json();
+      return j?.errorReponse ? { code: j.code, error: String(j.error).slice(0, 80) } : { ok: true, shape: shapeOf(j) };
+    },
     // Le portail lie la session au cookie en visitant connect.xhtml juste après la connexion (comme son appli web).
     async connect() {
       const res = await fetchFn(`${BASE}/in/connect.xhtml`, { headers: { ...base, Cookie: cookieHeader() }, redirect: 'manual' });
@@ -148,6 +157,20 @@ export async function diagnose({ username, password }, fetchFn = fetch) {
   const step = async (label, fn) => {
     try { const r = await fn(); out.steps.push(r?.errorReponse ? { label, ok: false, code: r.code, error: String(r.error).slice(0, 200) } : { label, ok: true, shape: shapeOf(r) }); return r; } catch (e) { out.steps.push({ label, ok: false, error: e.message.slice(0, 250) }); }
   };
+  const jsess = c.cookieNames().includes('JSESSIONID') ? c.cookieNames().filter((n) => n === 'JSESSIONID') : [];
+  const variants = {
+    base: {},
+    sansCookie: { cookie: '' },
+    checksumRequeteComplete: { auth: (t, a, q) => `Bearer ${t} ${a} ${checksum(q + '&_=' + Date.now())}` },
+    sansChecksum: { auth: (t, a) => `Bearer ${t} ${a}` },
+    sansApiToken: { auth: (t, a, q) => `Bearer ${t} ${checksum(q)}` },
+    checksumVide: { auth: (t, a) => `Bearer ${t} ${a} ${checksum('')}` },
+    sansMicrosite: { noMicrosite: true },
+  };
+  out.variants = {};
+  for (const [name, v] of Object.entries(variants)) {
+    try { out.variants[name] = await c.probe(session.token, 'profile', { auth: (t, a, q) => `Bearer ${t} ${a} ${checksum(q)}`, ...v }); } catch (e) { out.variants[name] = { error: e.message.slice(0, 100) }; }
+  }
   // L'adresse de sortie de Cloudflare change-t-elle entre deux appels ? (seulement le nombre d'adresses distinctes est renvoyé)
   try {
     const ips = new Set();
