@@ -84,6 +84,7 @@ $('save').onclick = () => {
   $('pass').value = '';
   $('err').textContent = '';
   refresh();
+if (store.get('lastTrace')) $('svcErr').textContent = 'Dernier trajet de connexion :\n' + store.get('lastTrace');
 };
 $('sync').onclick = refresh;
 
@@ -134,3 +135,4 @@ if ('serviceWorker' in navigator) {
   });
 }
 refresh();
+if (store.get('lastTrace')) $('svcErr').textContent = 'Dernier trajet de connexion :\n' + store.get('lastTrace');
