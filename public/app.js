@@ -429,6 +429,11 @@ function searchCard(item) {
       const extra = d.fields.length ? d.fields : item.fields.filter(([l]) => !MAIN.includes(l));
       const r = rows(extra);
       if (r) body.append(r); else body.append(el('p', 'hint', 'Aucun détail supplémentaire.'));
+      if (!d.fields.length) {
+        const b = el('button', 'link', 'Détails manquants : envoyer un diagnostic'); const pre = el('pre'); pre.hidden = true;
+        b.onclick = async () => { pre.hidden = false; pre.textContent = '…'; try { const g = await call('/notice', { id: item.id, debug: true }); pre.textContent = JSON.stringify({ keys: g.keys, shape: g.shape }, null, 1); } catch (e) { pre.textContent = e.message; } };
+        body.append(b, pre);
+      }
     } catch (e) { loaded = false; body.textContent = 'Impossible de charger les détails : ' + e.message; }
   };
   li.append(det);
