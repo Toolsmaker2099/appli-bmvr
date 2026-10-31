@@ -730,18 +730,26 @@ async function showBaskets(body, status) {
     const ul = el('ul', 'cards');
     if (!baskets.length) { ul.append(emptyState('♡', 'Aucune liste', 'Créez une liste, ou ajoutez un document depuis Chercher avec le bouton ♡.')); }
     for (const b of baskets) {
-      const li = el('li', 'card');
-      const head = el('div', 'card-head'); const t = el('div', 'card-title');
-      t.append(el('h3', '', b.name)); if (b.count) t.append(el('p', '', `${b.count} document${b.count > 1 ? 's' : ''}`));
-      head.append(t); li.append(head);
-      const row = el('div', 'btn-row');
-      const open = el('button', 'primary small', 'Ouvrir');
-      const ren = el('button', 'secondary small', 'Renommer'); ren.hidden = !!b.isDefault;
-      const del = el('button', 'secondary small danger', 'Supprimer'); del.hidden = !!b.isDefault;
-      open.onclick = () => showBasket(body, status, b);
-      ren.onclick = async () => { const n = prompt('Nouveau nom ?', b.name); if (!n || !n.trim()) return; try { render((await call('/basket', { action: 'rename', basketId: b.id, name: n.trim() })).baskets); } catch (e) { status.textContent = e.message; } };
-      del.onclick = async () => { if (!confirm(`Supprimer la liste « ${b.name} » ?`)) return; try { render((await call('/basket', { action: 'delete', basketId: b.id })).baskets); } catch (e) { status.textContent = e.message; } };
-      row.append(open, ren, del); li.append(row); ul.append(li);
+      const li = el('li', 'list-card');
+      const main = el('div', 'list-main'); main.tabIndex = 0; main.setAttribute('role', 'button');
+      const ico = el('span', 'list-ico', b.isDefault ? '♡' : '📚'); ico.style.background = userColor(b.name);
+      const t = el('span', 'list-txt');
+      t.append(el('strong', '', b.name), el('small', '', b.count ? `${b.count} document${b.count > 1 ? 's' : ''}` : 'Liste vide'));
+      main.append(ico, t, el('span', 'stat-go', '›'));
+      const openIt = () => showBasket(body, status, b);
+      main.onclick = openIt; main.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openIt(); } };
+      li.append(main);
+      if (!b.isDefault) {
+        const more = el('button', 'list-more', '⋯'); more.setAttribute('aria-label', 'Modifier la liste');
+        const acts = el('div', 'list-acts'); acts.hidden = true;
+        const ren = el('button', 'secondary small', 'Renommer');
+        const del = el('button', 'secondary small danger', 'Supprimer');
+        more.onclick = (e) => { e.stopPropagation(); acts.hidden = !acts.hidden; };
+        ren.onclick = async () => { const n = prompt('Nouveau nom ?', b.name); if (!n || !n.trim()) return; try { render((await call('/basket', { action: 'rename', basketId: b.id, name: n.trim() })).baskets); } catch (e) { status.textContent = e.message; } };
+        del.onclick = async () => { if (!confirm(`Supprimer la liste « ${b.name} » ?`)) return; try { render((await call('/basket', { action: 'delete', basketId: b.id })).baskets); } catch (e) { status.textContent = e.message; } };
+        acts.append(ren, del); main.after(more); li.append(acts); li.classList.add('has-more');
+      }
+      ul.append(li);
     }
     body.append(ul); status.textContent = '';
     if (baskets.some((b) => b.name === 'Liste sans nom')) {

@@ -185,3 +185,17 @@ details[open]>summary.acc{border-bottom-left-radius:0;border-bottom-right-radius
 .accounts li.on{background:color-mix(in srgb,var(--accent) 8%,var(--card))}
 .top>div{min-width:0;flex:1}.chip-name{max-width:6.5em}h1{font-size:1.5rem}
 .accounts li.tap{cursor:pointer}.accounts li.tap:active{background:var(--chip)}.acc-go{color:var(--accent);font-weight:600;font-size:.88rem}
+
+/* listes de favoris */
+.list-card{position:relative;background:var(--card);border:1px solid var(--line);border-radius:18px;box-shadow:0 1px 2px rgba(0,0,0,.04);overflow:hidden}
+.list-main{display:flex;align-items:center;gap:14px;padding:14px 48px 14px 14px;cursor:pointer}
+.list-main:active{background:var(--chip)}
+.list-ico{width:46px;height:46px;border-radius:14px;display:grid;place-items:center;font-size:1.3rem;color:#fff;flex:none}
+.list-txt{flex:1;min-width:0;display:flex;flex-direction:column;line-height:1.25}
+.list-txt strong{font-size:1.02rem;overflow-wrap:anywhere}.list-txt small{color:var(--muted)}
+.list-card .stat-go{position:absolute;right:16px;top:50%;transform:translateY(-50%);pointer-events:none}
+.list-card.has-more .stat-go{display:none}
+.list-more{position:absolute;right:6px;top:8px;width:40px;height:40px;border-radius:50%;border:0;background:transparent;color:var(--muted);font-size:1.4rem;line-height:1}
+.list-more:active{background:var(--chip)}
+.list-acts{display:flex;gap:8px;padding:0 14px 12px;border-top:1px solid var(--line);padding-top:10px}
+.list-acts .small{flex:1;margin:0}
