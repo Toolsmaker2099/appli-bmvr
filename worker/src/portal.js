@@ -689,8 +689,13 @@ export async function basketOp(creds, body, fetchFn = fetch, debug = false) {
     }
     case 'delete': {
       if (!idOk(body.basketId)) throw new Error('Liste invalide');
-      failIfError(await c.post(token, 'deleteBaskets', [body.basketId]), 'Favoris');
-      return { baskets: await lists() };
+      const r = failIfError(await c.post(token, 'deleteBaskets', [body.basketId]), 'Favoris');
+      const after = await lists();
+      if (after.some((b) => b.id === body.basketId)) {
+        const isDefault = /default/i.test(body.basketId);
+        throw new Error(isDefault ? "Cette liste est la liste par défaut de la bibliothèque : elle ne peut pas être supprimée (vous pouvez la vider)." : `La bibliothèque n'a pas supprimé cette liste (réponse : ${JSON.stringify(r).slice(0, 120)}).`);
+      }
+      return { baskets: after };
     }
     case 'content': {
       if (!idOk(body.basketId)) throw new Error('Liste invalide');
