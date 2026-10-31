@@ -798,3 +798,45 @@ export function organizeProfile(fields) {
   sec('Informations personnelles', [['Civilité', civ], ['Date de naissance', once('Date de naissance')], ['Langue', once('Langue')], ...[...by].filter(([l]) => !used.has(l) && l !== 'Date de naissance' && l !== 'Langue').map(([l, v]) => [l, v.join(' · ')])]);
   return { name: fullName, card: once('N° de carte') ?? '', subtitle: once('Catégorie') ?? '', sections };
 }
+
+
+// Onglet « Notice » du site : détail complet d'un document (aspect Meta de la notice).
+function findSummary(node, depth = 0) {
+  if (!node || typeof node !== 'object' || depth > 5) return null;
+  if (Array.isArray(node) && node.length && node.every((x) => x && typeof x === 'object' && 'name' in x)) return node;
+  for (const v of Object.values(node)) { const r = findSummary(v, depth + 1); if (r) return r; }
+  return null;
+}
+const NOTICE_FR = [
+  [/author|auteur|creator/i, 'Auteur'], [/^title$|titre/i, 'Titre'], [/publication|publish|[ée]diteur/i, 'Publication'], [/isbn/i, 'ISBN'], [/issn/i, 'ISSN'],
+  [/description|physical/i, 'Description'], [/collection|series|s[ée]rie/i, 'Collection'], [/summary|abstract|r[ée]sum[ée]/i, 'Résumé'], [/subject|topic|sujet|keyword/i, 'Sujets'],
+  [/language|langue/i, 'Langue'], [/^date|year/i, 'Date'], [/type|format/i, 'Type de document'], [/note/i, 'Notes'], [/edition/i, 'Édition'], [/genre/i, 'Genre'],
+  [/callnumber|cote/i, 'Cote'], [/contributor|collaborat/i, 'Autres contributeurs'], [/audience|public/i, 'Public'],
+];
+export function parseNotice(res) {
+  const list = findSummary(res) ?? [];
+  const by = new Map();
+  for (const e of list) {
+    const name = String(e.name ?? '');
+    if (!name.startsWith('meta.')) continue;
+    const key = name.slice(5);
+    const own = typeof e.label === 'string' ? e.label.replace(/\s*:\s*$/, '').trim() : '';
+    const label = NOTICE_FR.find(([re]) => re.test(key))?.[1] ?? (own && !/^[a-z_.]+$/.test(own) && own.length < 40 ? own : null);
+    if (!label) continue;
+    const v = flat(e.value ?? e.values ?? e.display).join(' · ');
+    if (!v) continue;
+    if (!by.has(label)) by.set(label, []);
+    if (!by.get(label).includes(v)) by.get(label).push(v);
+  }
+  const order = ['Auteur', 'Titre', 'Publication', 'Date', 'Type de document', 'ISBN', 'ISSN', 'Description', 'Collection', 'Résumé', 'Sujets'];
+  const labels = [...order.filter((l) => by.has(l)), ...[...by.keys()].filter((l) => !order.includes(l))];
+  return labels.map((l) => [l, by.get(l).join(' · ').slice(0, 1500)]);
+}
+
+export async function fetchNotice(creds, id, fetchFn = fetch, debug = false) {
+  check(id);
+  const { c, token } = await login(creds, fetchFn);
+  const res = failIfError(await c.get(token, 'notice', { id, locale: 'fr', aspect: 'Meta' }), 'Notice');
+  const fields = parseNotice(res);
+  return debug ? { fields, shape: shapeOf(res) } : { fields };
+}

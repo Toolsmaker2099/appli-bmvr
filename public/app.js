@@ -402,9 +402,9 @@ function searchCard(item) {
   
   head.append(cover(item), t);
   li.append(head);
-  const fields = item.fields.slice();
-  if (item.isbn && !fields.some(([l]) => l === 'ISBN')) fields.push(['ISBN', item.isbn]);
-  const main = rows(fields);
+  // Sur la carte : l'essentiel (comme le site officiel). Le reste est dans « Détails » (onglet Notice du site), chargé à l'ouverture.
+  const MAIN = ['Auteurs', 'Éditeurs', 'Date', 'Type de document'];
+  const main = rows(item.fields.filter(([l]) => MAIN.includes(l)));
   if (main) li.append(main);
   const chips = el('div', 'chips');
   const chip = (txt, cls) => chips.append(el('span', 'chip ' + cls, txt));
@@ -415,6 +415,23 @@ function searchCard(item) {
   } else if (item.copiesTotal === 0) chip('Aucun exemplaire en rayon : non réservable', 'warn');
   else if (item.availability) chip(item.availability === 'available' ? '✓ Document disponible dans un des établissements du réseau' : 'Aucun exemplaire disponible actuellement', item.availability === 'available' ? 'good' : 'warn');
   if (chips.children.length) li.append(chips);
+  const det = el('details', 'notice');
+  det.append(el('summary', '', 'Détails'));
+  const body = el('div', 'notice-body');
+  det.append(body);
+  let loaded = false;
+  det.ontoggle = async () => {
+    if (!det.open || loaded) return;
+    loaded = true; body.textContent = 'Chargement…';
+    try {
+      const d = await call('/notice', { id: item.id });
+      body.replaceChildren();
+      const extra = d.fields.length ? d.fields : item.fields.filter(([l]) => !MAIN.includes(l));
+      const r = rows(extra);
+      if (r) body.append(r); else body.append(el('p', 'hint', 'Aucun détail supplémentaire.'));
+    } catch (e) { loaded = false; body.textContent = 'Impossible de charger les détails : ' + e.message; }
+  };
+  li.append(det);
   const row = el('div', 'btn-row');
   const fav = el('button', 'secondary small fav-btn', '♡ Favoris');
   fav.onclick = () => { fav.remove(); favSheet(item, li); };
