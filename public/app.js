@@ -65,5 +65,19 @@ $('save').onclick = () => {
 $('sync').onclick = refresh;
 $('reset').onclick = () => { signOut(); refresh(); };
 
-if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js');
+// Mise à jour automatique : à chaque ouverture ou retour sur l'appli, on cherche une nouvelle version ;
+// si elle existe, elle s'installe seule et la page se recharge une fois.
+if ('serviceWorker' in navigator) {
+  const hadController = !!navigator.serviceWorker.controller;
+  let reloading = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!hadController || reloading) return;
+    reloading = true;
+    location.reload();
+  });
+  navigator.serviceWorker.register('sw.js').then((reg) => {
+    reg.update();
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') reg.update(); });
+  });
+}
 refresh();
