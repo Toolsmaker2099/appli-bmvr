@@ -441,7 +441,7 @@ export function parseSearch(res) {
       type: '',
       availability,
       coverId: num ? id : '',
-      isbn: String(first(e.isbn) ?? '').replace(/[^0-9Xx]/g, ''),
+      isbn: String(first(e.isbn) ?? first(e.isbn13) ?? first(e.isbn10) ?? first(e.meta?.isbn) ?? first(e.meta?.isbn13) ?? '').replace(/[^0-9Xx]/g, ''),
       fields,
     };
   }).filter((r) => r.id);

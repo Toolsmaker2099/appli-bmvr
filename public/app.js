@@ -356,7 +356,9 @@ function searchCard(item) {
   
   head.append(cover(item), t);
   li.append(head);
-  const main = rows(item.fields);
+  const fields = item.fields.slice();
+  if (item.isbn && !fields.some(([l]) => l === 'ISBN')) fields.push(['ISBN', item.isbn]);
+  const main = rows(fields);
   if (main) li.append(main);
   const chips = el('div', 'chips');
   const chip = (txt, cls) => chips.append(el('span', 'chip ' + cls, txt));
