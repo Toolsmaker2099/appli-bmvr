@@ -603,9 +603,24 @@ function richNodes(html) {
   walk(doc.body, out);
   return out;
 }
+// Texte « à l'ancienne » (retours à la ligne sans balises de bloc) : on le structure en paragraphes et en listes à puces.
+function structureText(html) {
+  if (/<(p|div|br|ul|ol|li|table|h[1-6])\b/i.test(html)) return html;
+  const out = []; let para = [], list = [];
+  const flush = () => { if (para.length) out.push('<p>' + para.join('<br>') + '</p>'); if (list.length) out.push('<ul>' + list.join('') + '</ul>'); para = []; list = []; };
+  for (const line of String(html).replace(/\r/g, '').split('\n')) {
+    const t = line.trim();
+    if (!t) { flush(); continue; }
+    if (/^[*•·-]\s+\S/.test(t.replace(/<[^>]+>/g, ''))) { if (para.length) { out.push('<p>' + para.join('<br>') + '</p>'); para = []; } list.push('<li>' + t.replace(/^((<[^>]+>)*\s*)[*•·-]\s+/, '$1') + '</li>'); }
+    else { if (list.length) { out.push('<ul>' + list.join('') + '</ul>'); list = []; } para.push(t); }
+  }
+  flush();
+  return out.join('');
+}
 function richBody(html, plain) {
   const box = el('div', 'rich');
-  box.append(richNodes(/[<][a-z!/]/i.test(html || '') ? html : String(plain || '').split(/\n{2,}/).map((x) => '<p>' + x.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/\n/g, '<br>') + '</p>').join('')));
+  const src = /[<][a-z!/]/i.test(html || '') ? html : String(plain || '').replace(/&/g, '&amp;').replace(/</g, '&lt;');
+  box.append(richNodes(structureText(src)));
   // lignes « * texte » ou « • texte » : de vraies puces
   for (const p of [...box.querySelectorAll(':scope > p, :scope > ul > li')]) {
     const t = p.textContent;
