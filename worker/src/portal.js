@@ -47,6 +47,7 @@ function makeClient(apiToken, fetchFn) {
       if (!res.ok) throw new Error(`Portail: ${path} → HTTP ${res.status}`);
       return res.json();
     },
+    cookieNames: () => [...cookies.keys()],
     // Le portail lie la session au cookie en visitant connect.xhtml juste après la connexion (comme son appli web).
     async connect() {
       const res = await fetchFn(`${BASE}/in/connect.xhtml`, { headers: { ...base, Cookie: cookieHeader() }, redirect: 'manual' });
@@ -143,7 +144,7 @@ export async function diagnose({ username, password }, fetchFn = fetch) {
   const c = makeClient(apiToken, fetchFn);
   const session = await c.post(null, 'authenticate', { username: username.includes('@') ? username.toLowerCase() : username, password, locale: 'fr' });
   if (!session.token) throw new AuthError(`Connexion refusée : ${session.error || 'identifiants incorrects ?'}`);
-  const out = { sessionKeys: Object.keys(session).sort(), connectStatus: await c.connect(), steps: [] };
+  const out = { sessionKeys: Object.keys(session).sort(), passwordPoliticsInvalidated: session.passwordPoliticsInvalidated, tokenLength: session.token.length, cookiesAfterLogin: c.cookieNames(), connectStatus: await c.connect(), cookiesAfterConnect: c.cookieNames(), steps: [] };
   const step = async (label, fn) => {
     try { const r = await fn(); out.steps.push(r?.errorReponse ? { label, ok: false, code: r.code, error: String(r.error).slice(0, 200) } : { label, ok: true, shape: shapeOf(r) }); return r; } catch (e) { out.steps.push({ label, ok: false, error: e.message.slice(0, 250) }); }
   };
