@@ -66,25 +66,36 @@ function go() {
 addEventListener('hashchange', go);
 
 // ---------- accueil ----------
+function statCard(href, ico, big, label, sub, tone) {
+  const a = el('a', 'stat ' + (tone || '')); a.href = href;
+  const i = el('span', 'stat-ico', ico);
+  const t = el('span', 'stat-txt');
+  t.append(el('span', 'stat-label', label), el('strong', 'stat-big', big));
+  if (sub) t.append(el('span', 'stat-sub', sub));
+  a.append(i, t, el('span', 'stat-go', '›'));
+  return a;
+}
 function renderSummary() {
   const box = $('summary');
   box.replaceChildren();
   const data = readCache();
   if (!hasCreds()) {
-    box.append(el('strong', '', 'Bienvenue'), el('p', '', 'Connectez votre compte BMVR pour retrouver vos prêts et accéder aux services en ligne.'));
-    const a = el('a', '', 'Se connecter →'); a.href = '#compte'; box.append(a);
+    const w = el('div', 'hero');
+    w.append(el('strong', '', 'Bienvenue'), el('p', '', 'Connectez votre compte BMVR pour retrouver vos prêts et accéder aux services en ligne.'));
+    const a = el('a', '', 'Se connecter →'); a.href = '#compte'; w.append(a);
+    box.append(w);
     $('msgCard').hidden = true;
     return;
   }
-  if (!data) { const a = el('a', '', 'Voir mes prêts →'); a.href = '#prets'; box.append(el('strong', '', 'Vos prêts'), a); renderMsgLine(); return; }
-  const n = data.loans.length;
-  const late = data.loans.filter((l) => daysLeft(l.dueDate) < 0).length;
-  box.append(el('strong', '', n ? `${n} prêt${n > 1 ? 's' : ''} en cours` : 'Aucun prêt en cours'));
-  if (n) {
-    const next = data.loans[0];
-    box.append(el('p', '', late ? `⚠ ${late} en retard · ${rel(daysLeft(next.dueDate))}` : `Prochain retour : ${rel(daysLeft(next.dueDate)).toLowerCase().replace('à rendre ', '')} (${shortDate(next.dueDate)})`));
+  if (!data) box.append(statCard('#prets', '📚', 'Voir mes prêts', 'Mes prêts', ''));
+  else {
+    const n = data.loans.length;
+    const late = data.loans.filter((l) => daysLeft(l.dueDate) < 0).length;
+    const soon = data.loans.some((l) => daysLeft(l.dueDate) <= 3);
+    let sub = 'Rien à rendre pour le moment';
+    if (n) { const next = data.loans[0]; sub = late ? `⚠ ${late} en retard · ${rel(daysLeft(next.dueDate))}` : `Prochain retour : ${rel(daysLeft(next.dueDate)).toLowerCase().replace('à rendre ', '')} (${shortDate(next.dueDate)})`; }
+    box.append(statCard('#prets', '📚', n ? `${n} en cours` : 'Aucun', 'Mes prêts', sub, late ? 'late' : soon ? 'soon' : ''));
   }
-  const a = el('a', '', 'Voir mes prêts →'); a.href = '#prets'; box.append(a);
   renderMsgLine();
 }
 function renderMsgLine() {
@@ -93,9 +104,7 @@ function renderMsgLine() {
     const c = readMsgCache(); if (!c || !hasCreds()) { line.hidden = true; return; }
     line.hidden = false;
     const n = c.items.length, u = unseenCount(c.items);
-    line.replaceChildren();
-    const a = el('a', u ? 'new' : '', n ? `✉️ ${n} message${n > 1 ? 's' : ''}${u ? ` · ${u} nouveau${u > 1 ? 'x' : ''}` : ''}` : '✉️ Aucun message'); a.href = '#espace/messages';
-    line.append(a);
+    line.replaceChildren(statCard('#espace/messages', '✉️', n ? `${n} message${n > 1 ? 's' : ''}` : 'Aucun', 'Mes messages', u ? `${u} nouveau${u > 1 ? 'x' : ''}` : n ? 'Tout est lu' : 'Votre boîte est vide', u ? 'soon' : ''));
   };
   draw();
   if (!readMsgCache() || Date.now() - readMsgCache().at > 120000) refreshMessages().then(draw);
