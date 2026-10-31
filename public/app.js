@@ -353,7 +353,7 @@ function searchCard(item) {
   const head = el('div', 'card-head');
   const t = el('div', 'card-title');
   t.append(el('h3', '', item.title));
-  if (item.author) t.append(el('p', '', item.author));
+  
   head.append(cover(item), t);
   li.append(head);
   const main = rows(item.fields);
