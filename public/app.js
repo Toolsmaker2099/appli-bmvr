@@ -94,16 +94,15 @@ document.querySelectorAll('.service').forEach((btn) => {
     const user = store.get('user'), pass = store.get('pass');
     $('svcErr').textContent = '';
     if (!user || !pass) { $('svcErr').textContent = "Connectez-vous d'abord avec votre compte BMVR."; $('setup').hidden = false; return; }
-    const win = window.open('', '_blank'); // ouvert tout de suite (sinon le navigateur bloque la fenêtre)
     const label = btn.textContent;
     btn.disabled = true; btn.textContent = label + '…';
     try {
       const r = await fetch(RELAY + '/service', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: user, password: pass, service: btn.dataset.service }) });
       const data = await r.json();
       if (!r.ok) throw new Error(data.error || 'HTTP ' + r.status);
-      if (win) win.location.href = data.url; else location.assign(data.url);
+      // Même fenêtre : depuis une appli installée, un nouvel onglet partirait dans le navigateur par défaut du téléphone.
+      location.assign(data.url);
     } catch (e) {
-      if (win) win.close();
       $('svcErr').textContent = label + ' : ' + e.message;
     } finally { btn.disabled = false; btn.textContent = label; }
   };
