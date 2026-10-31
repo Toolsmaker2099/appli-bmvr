@@ -689,7 +689,7 @@ export async function basketOp(creds, body, fetchFn = fetch, debug = false) {
     }
     case 'delete': {
       if (!idOk(body.basketId)) throw new Error('Liste invalide');
-      failIfError(await c.post(token, 'deleteBaskets', { id: body.basketId }), 'Favoris');
+      failIfError(await c.post(token, 'deleteBaskets', [body.basketId]), 'Favoris');
       return { baskets: await lists() };
     }
     case 'content': {
