@@ -454,6 +454,27 @@ function searchCard(item) {
   } else if (item.copiesTotal === 0) chip('Aucun exemplaire en rayon', 'warn');
   else if (item.availability) chip(item.availability === 'available' ? '✓ Document disponible dans un des établissements du réseau' : 'Aucun exemplaire disponible actuellement', item.availability === 'available' ? 'good' : 'warn');
   if (chips.children.length) li.append(chips);
+  if (item.copies?.length) {
+    const ex = el('details', 'notice copies');
+    ex.append(el('summary', '', `Exemplaires par bibliothèque (${item.copies.length})`));
+    const by = new Map();
+    for (const c of item.copies) { const k = c.branch || 'Bibliothèque'; if (!by.has(k)) by.set(k, []); by.get(k).push(c); }
+    const box = el('div', 'copy-list');
+    for (const [name, list] of [...by].sort((a, b) => b[1].filter((x) => x.available).length - a[1].filter((x) => x.available).length || a[0].localeCompare(b[0], 'fr'))) {
+      const n = list.filter((x) => x.available).length;
+      const g = el('div', 'copy-branch');
+      const h = el('div', 'copy-h'); h.append(el('strong', '', name), el('span', 'chip ' + (n ? 'good' : 'warn'), n ? `${n} disponible${n > 1 ? 's' : ''}` : 'Aucun disponible'));
+      g.append(h);
+      for (const c of list) {
+        const r = el('div', 'copy-row');
+        r.append(el('span', 'copy-what', [c.place, c.callNumber].filter(Boolean).join(' · ') || 'Exemplaire'));
+        r.append(el('span', 'copy-st ' + (c.available ? 'ok' : 'no'), c.available ? '✓ Disponible' : (c.status || 'Indisponible') + (c.due ? ` · retour le ${shortDate(c.due)}` : '')));
+        g.append(r);
+      }
+      box.append(g);
+    }
+    ex.append(box); li.append(ex);
+  }
   const det = el('details', 'notice');
   det.append(el('summary', '', 'Détails'));
   const body = el('div', 'notice-body');

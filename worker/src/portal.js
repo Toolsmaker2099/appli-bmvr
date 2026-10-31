@@ -508,6 +508,7 @@ export async function searchCatalogue(creds, query, fetchFn = fetch, debug = fal
       r.copiesTotal = copies.length;
       r.copiesAvailable = copies.filter((x) => x.available).length;
       r.nextReturn = copies.filter((x) => !x.available).map((x) => x.due).filter(Boolean).sort()[0] || '';
+      r.copies = copies.slice(0, 60).map(({ branch, place, callNumber, status, available, due }) => ({ branch, place, callNumber, status, available, due }));
       r.reservable = stock?.canReserve !== false && copies.some((x) => x.canReserve);
     } catch { r.reservable = null; }
   }));

@@ -148,3 +148,11 @@ button.danger{color:#b3261e}
 .msg-ask{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end;font-size:.88rem;color:var(--fg)}
 .card.msg.gone{opacity:0;transform:scale(.97);transition:.25s}
 .card.msg p.hint{padding:0 16px 12px;margin:0}
+
+/* exemplaires */
+.copy-list{padding:0 14px 12px;display:grid;gap:12px}
+.copy-h{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:4px}
+.copy-row{display:flex;justify-content:space-between;gap:10px;font-size:.88rem;padding:5px 0;border-top:1px solid var(--line)}
+.copy-what{color:var(--muted);min-width:0;overflow-wrap:anywhere}
+.copy-st{text-align:right;flex:none;max-width:55%}
+.copy-st.ok{color:var(--ok);font-weight:600}.copy-st.no{color:var(--warn)}
