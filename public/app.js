@@ -12,6 +12,7 @@ const label = (d) => (d < 0 ? `En retard de ${-d} j` : d === 0 ? "Aujourd'hui" :
 
 function render({ loans, fetchedAt }, note = '') {
   $('loans').hidden = false;
+  $('diag').hidden = false;
   $('foot').hidden = false;
   const list = $('list');
   list.replaceChildren();
