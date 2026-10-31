@@ -605,7 +605,7 @@ function genericFields(d) {
 }
 
 export function parseAccountItems(res) {
-  const items = Array.isArray(res) ? res : res?.items ?? [];
+  const items = Array.isArray(res) ? res : res?.items ?? res?.messages ?? res?.fines ?? [];
   return items.map((raw, i) => {
     const d = raw?.data ?? raw;
     const seq = String(d.seqNo ?? '').trim();
@@ -657,9 +657,15 @@ export async function fetchAccount(creds, kind, fetchFn = fetch, debug = false) 
   }
   const type = ACCOUNT_KINDS[kind];
   if (!type) throw new Error('Rubrique inconnue');
+  // Selon la rubrique, le portail répond par la « page de compte » ou par l'aspect direct : on garde la première réponse non vide.
   let res, lastErr;
-  for (const [path, params] of [['accountPage', { type, pageNo: 1, pageSize: 100, locale: 'fr' }], [type, { locale: 'fr' }]]) {
-    try { res = failIfError(await c.get(token, path, params), 'Rubrique'); break; } catch (e) { lastErr = e; }
+  for (const [path, params] of [[type, { locale: 'fr' }], ['accountPage', { type, pageNo: 1, pageSize: 100, locale: 'fr' }], [type, {}]]) {
+    try {
+      const r = failIfError(await c.get(token, path, params), 'Rubrique');
+      const n = (Array.isArray(r) ? r : r?.items ?? r?.messages ?? r?.fines ?? []).length;
+      if (!res) res = r;
+      if (n > 0) { res = r; break; }
+    } catch (e) { lastErr = e; }
   }
   if (!res) throw lastErr;
   const items = parseAccountItems(res);
