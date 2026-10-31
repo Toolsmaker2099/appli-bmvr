@@ -274,7 +274,8 @@ export async function diagnose({ username, password }, fetchFn = fetch) {
 
 export const SERVICES = {
   mediapart: 'https://www.bmvr.marseille.fr/in/rest/cas/login?service=https%3A%2F%2Fwww.mediapart.fr%2F%3Fcasid%3DBMVR.Marseille',
-  marsactu: 'https://www.bmvr.marseille.fr/mars-actu-connexion-referer',
+  // Marsactu passe par la plateforme d'accès brief.me (connexion CAS de la BMVR), comme le lien « mars-actu-connexion-sso » du site.
+  marsactu: 'https://www.bmvr.marseille.fr/in/rest/cas/login?service=' + encodeURIComponent('https://www.brief.me/?cas_sso_id=www.bmvr.marseille.fr&platform=inmedia&client=marsactu'),
   cafeyn: 'https://www.cafeyn.co/loginexternal/648',
 };
 
