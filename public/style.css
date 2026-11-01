@@ -254,3 +254,5 @@ a.primary.linkbtn{background:var(--accent);color:var(--accent-fg);display:block;
 .rem-list{list-style:none;margin:0 0 8px;padding:0;display:grid;gap:6px}
 .rem-list li{display:flex;flex-direction:column;font-size:.92rem}
 .rem-d{color:#777;font-size:.82rem}
+
+audio.player{width:100%;margin:4px 0 12px}

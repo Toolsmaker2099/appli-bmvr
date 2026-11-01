@@ -527,6 +527,8 @@ export function parseSearch(res) {
       coverId: num ? id : '',
       isbn: String(first(e[Object.keys(e).find((k) => /isbn/i.test(k)) ?? 'isbn']) ?? first(e.isbn13) ?? first(e.isbn10) ?? first(e.meta?.isbn) ?? first(e.meta?.isbn13) ?? '').replace(/[^0-9Xx]/g, ''),
       fields,
+      digital: String(first(e.IsPhysicalDocument) ?? '') === '0',
+      kind: zType,
     };
   }).filter((r) => r.id);
 }
@@ -534,6 +536,7 @@ export function parseSearch(res) {
 // Disponibilité et « réservable » : on lit les exemplaires de chaque résultat (aspect Stock) et on suit les indicateurs du portail.
 async function attachStock(c, token, results, max = 30) {
   await Promise.all(results.slice(0, max).map(async (r) => {
+    if (r.digital) return; // podcasts, films et livres numériques : pas d'exemplaire en rayon
     try {
       const stock = failIfError(await c.get(token, 'notice', { id: r.id, locale: 'fr', aspect: 'Stock' }), 'Exemplaires');
       const copies = parseCopies(stock);
@@ -542,6 +545,13 @@ async function attachStock(c, token, results, max = 30) {
       r.nextReturn = copies.filter((x) => !x.available).map((x) => x.due).filter(Boolean).sort()[0] || '';
       r.copies = copies.slice(0, 60).map(({ branch, place, callNumber, status, available, due, stat, held }) => ({ branch, place, callNumber, status, available, due, stat, held }));
       r.reservable = stock?.canReserve !== false && copies.some((x) => x.canReserve);
+      if (!copies.length && stock?.hasSerialHoldings) {
+        const h = failIfError(await c.get(token, 'serialHoldings', { id: r.id, page: 1, locale: 'fr' }), 'Collection');
+        const seen = new Set();
+        r.holdings = (h.holdings ?? []).filter((x) => !x.isHeader && x.caption).map((x) => ({ branch: x.branch?.desc || '', place: x.subloca?.desc || '', callNumber: x.callNumber || '', caption: String(x.caption).replace(/^Etat de collection\s*:\s*/i, '') }))
+          .filter((x) => { const k = x.branch + x.caption; if (seen.has(k)) return false; seen.add(k); return true; }).slice(0, 12);
+        r.reservable = false;
+      }
     } catch { r.reservable = null; }
   }));
 }
@@ -556,7 +566,7 @@ export async function searchCatalogue(creds, query, fetchFn = fetch, debug = fal
   return debug ? { results, shape: shapeOf(res), firstKeys: Object.keys(res?.resultSet?.[0] ?? {}), metaKeys: Object.keys(res?.resultSet?.[0]?.meta ?? {}) } : { results, total: res.totalHits ?? res.total ?? results.length };
 }
 
-const ID_RE = /^[A-Za-z0-9_:.\-]{1,80}$/;
+const ID_RE = /^[A-Za-z0-9_:.\-\/]{1,120}$/;
 const check = (id) => { if (!ID_RE.test(id ?? '')) throw new Error('Document invalide'); };
 
 // Exemplaires du document (aspect « Stock » de la notice) : le portail réserve toujours un exemplaire précis.
@@ -938,6 +948,9 @@ const NOTICE_FR = [
 const NOTICE_FIELDS = [
   ['creator', 'Auteur', true], ['titleFull', 'Titre'], ['publicationStatement', 'Publication', true], ['isbn', 'ISBN'], ['descriptionPhysical', 'Description'],
   ['seriesGeneral', 'Collection', true], ['abstract', 'Résumé'], ['issn', 'ISSN'], ['subject', 'Sujets', true], ['language', 'Langue'], ['dateIssuedYear', 'Date'],
+  // Documents en ligne : podcasts, films, livres numériques
+  ['show', 'Émission'], ['description', 'Résumé'], ['longDescription', 'Présentation'], ['duration', 'Durée'], ['publisher', 'Éditeur', true], ['contributor', 'Participants'],
+  ['pages', 'Pages'], ['DRMTypeLabel', 'Protection'], ['noteGeneral', 'Note'],
 ];
 export function parseNotice(res) {
   const byName = new Map((res?.fields ?? []).map((f) => [f.name, f.values ?? []]));
@@ -948,11 +961,26 @@ export function parseNotice(res) {
       const t = (caption && qa.DocumentCaption) || qa.Answer || qa.value || '';
       return String(t).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
     }).filter(Boolean);
-    if (vals.length) out.push([label, [...new Set(vals)].join(' · ').slice(0, 1500)]);
+    if (vals.length) out.push([label, name === 'duration' ? vals[0] + ' min' : [...new Set(vals)].join(' · ').slice(0, name === 'longDescription' ? 3000 : 1500)]);
   }
   if (!out.some(([l]) => l === 'ISBN') && res?.firstISBN) out.splice(Math.min(3, out.length), 0, ['ISBN', String(res.firstISBN)]);
   if (!out.some(([l]) => l === 'Date')) { const d = byName.get('dateIssuedFormatted')?.[0]?.qa?.Answer; if (d) out.push(['Date', String(d)]); }
   return out;
+}
+
+// Liens utilisables d'une notice en ligne : écoute (mp3), film, extrait de livre numérique, accès externe. Uniquement du https.
+export function noticeLinks(res) {
+  const urls = [...new Set(JSON.stringify(res ?? {}).match(/https:[^"\\\s<>']+/g) ?? [])].map((u) => u.replace(/&amp;/g, '&'));
+  const out = [];
+  const add = (kind, label, url) => { if (!out.some((x) => x.kind === kind)) out.push({ kind, label, url }); };
+  for (const u of urls) {
+    if (/\.(jpe?g|png|gif|webp|svg)(\?|$)/i.test(u) || /ezproxy|[?&]url=|\/login\?|federation\./i.test(u) && !/on-tenk/i.test(u)) continue;
+    if (/\.mp3(\?|$)/i.test(u)) add('audio', 'Écouter', u);
+    else if (/on-tenk\.com/i.test(u)) add('film', 'Regarder en ligne', u);
+    else if (/cantook\.net/i.test(u)) add('sample', 'Lire un extrait', u);
+    else if (out.filter((x) => x.kind === 'web').length < 2) out.push({ kind: 'web', label: 'Accéder en ligne', url: u });
+  }
+  return out.slice(0, 4);
 }
 
 export async function fetchNotice(creds, id, fetchFn = fetch, debug = false) {
@@ -960,7 +988,8 @@ export async function fetchNotice(creds, id, fetchFn = fetch, debug = false) {
   const { c, token } = await login(creds, fetchFn);
   const res = failIfError(await c.get(token, 'notice', { id, locale: 'fr', aspect: 'Meta' }), 'Notice');
   const fields = parseNotice(res);
-  return debug ? { fields, shape: shapeOf(res), keys: Object.keys(res ?? {}) } : { fields };
+  const links = noticeLinks(res);
+  return debug ? { fields, links, shape: shapeOf(res), keys: Object.keys(res ?? {}) } : { fields, links };
 }
 
 // Horaires et informations aux usagers : lus à chaque appel dans la page officielle des horaires (contenu public du portail).

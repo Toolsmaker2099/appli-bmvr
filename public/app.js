@@ -548,13 +548,25 @@ function searchCard(item) {
   if (main) li.append(main);
   const chips = el('div', 'chips');
   const chip = (txt, cls) => chips.append(el('span', 'chip ' + cls, txt));
-  if (item.copiesTotal) {
+  if (item.digital) {
+    const K = { 'Podcast': ['🎧', 'Podcast à écouter en ligne'], 'Film en ligne': ['▶️', 'Film à regarder en ligne'], 'Livre numérique': ['📱', 'Livre numérique'] };
+    const [ico, txt] = K[item.kind] || ['💻', (item.kind || 'Document') + ' en ligne'];
+    chip(`${ico} ${txt}`, 'good');
+  } else if (item.holdings?.length) chip('📰 Consultation sur place', 'good');
+  else if (item.copiesTotal) {
     if (item.copiesAvailable > 0) chip(`✓ ${item.copiesAvailable} exemplaire${item.copiesAvailable > 1 ? 's' : ''} disponible${item.copiesAvailable > 1 ? 's' : ''} sur ${item.copiesTotal}`, 'good');
     else chip(`Aucun exemplaire disponible actuellement (${item.copiesTotal})${item.nextReturn ? ` · retour le plus proche : ${shortDate(item.nextReturn)}` : ''}`, 'warn');
     chip(item.reservable ? '🔖 Réservable' : 'Non réservable', item.reservable ? 'good' : '');
   } else if (item.copiesTotal === 0) chip('Aucun exemplaire en rayon', 'warn');
   else if (item.availability) chip(item.availability === 'available' ? '✓ Document disponible dans un des établissements du réseau' : 'Aucun exemplaire disponible actuellement', item.availability === 'available' ? 'good' : 'warn');
   if (chips.children.length) li.append(chips);
+  if (item.holdings?.length) {
+    const ex = el('details', 'notice where');
+    ex.append(accSummary('📍', 'Où le consulter · collection conservée'));
+    const box = el('div', 'copy-list');
+    for (const h of item.holdings) { const r = el('div', 'copy-row'); r.append(el('span', 'copy-what', [h.branch, h.place, h.callNumber].filter(Boolean).join(' · ')), el('span', 'copy-st wait', h.caption)); box.append(r); }
+    ex.append(box); li.append(ex);
+  }
   if (item.copies?.length) {
     const ex = el('details', 'notice where');
     const by = new Map();
@@ -582,7 +594,7 @@ function searchCard(item) {
   const more = moreLikeThis(item);
   if (more) li.append(more);
   const det = el('details', 'notice');
-  det.append(accSummary('📖', 'Détails du document'));
+  det.append(accSummary(item.digital ? (item.kind === 'Podcast' ? '🎧' : '📖') : '📖', item.digital && item.kind === 'Podcast' ? 'Écouter et détails' : item.digital && item.kind === 'Film en ligne' ? 'Regarder et détails' : 'Détails du document'));
   const body = el('div', 'notice-body');
   det.append(body);
   let loaded = false;
@@ -592,6 +604,10 @@ function searchCard(item) {
     try {
       const d = await call('/notice', { id: item.id });
       body.replaceChildren();
+      for (const l of d.links || []) {
+        if (l.kind === 'audio') { const a = el('audio'); a.controls = true; a.preload = 'none'; a.src = l.url; a.className = 'player'; body.append(a); continue; }
+        const a = el('a', 'primary small linkbtn', ({ film: '▶️ ', sample: '📖 ', web: '🔗 ' }[l.kind] || '') + l.label); a.href = l.url; a.target = '_blank'; a.rel = 'noopener noreferrer'; a.style.margin = '0 8px 8px 0'; body.append(a);
+      }
       const extra = d.fields.length ? d.fields : item.fields.filter(([l]) => !MAIN.includes(l));
       const r = noticeFields(extra);
       if (r) body.append(r); else body.append(el('p', 'hint', 'Aucun détail supplémentaire.'));
@@ -607,7 +623,7 @@ function searchCard(item) {
   const fav = el('button', 'secondary small fav-btn', '♡ Favoris');
   fav.onclick = () => { fav.remove(); favSheet(item, li); };
   row.append(fav); li.append(row);
-  if (item.reservable !== false) {
+  if (item.reservable !== false && !item.digital && !item.holdings?.length) {
     const btn = el('button', 'primary small', 'Réserver');
     btn.onclick = () => { btn.remove(); reserveSheet(item, li); };
     row.append(btn);
