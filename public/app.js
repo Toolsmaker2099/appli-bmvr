@@ -342,7 +342,7 @@ async function openLoans() {
     return;
   }
   const cached = readCache();
-  if (cached) renderLoans(cached, ' (copie enregistrée)');
+  if (cached) renderLoans(cached, ' · mise à jour…');
   else { $('list').replaceChildren(); status.textContent = 'Chargement de vos prêts…'; }
   if (loading) return;
   loading = true; $('sync').classList.add('spin');
@@ -423,14 +423,14 @@ let loadingResa = false;
 async function openReservations() {
   if (!hasCreds()) return needLogin($('resaList'), $('resaStatus'));
   const cached = readResaCache();
-  if (cached) renderResa(cached, ' (copie enregistrée)'); else { $('resaList').replaceChildren(); $('resaStatus').textContent = 'Chargement de vos réservations…'; }
+  if (cached) renderResa(cached, ' · mise à jour…'); else { $('resaList').replaceChildren(); $('resaStatus').textContent = 'Chargement de vos réservations…'; }
   if (loadingResa) return;
   loadingResa = true; $('sync').classList.add('spin');
   try {
     const data = await call('/reservations');
     store.set('resaCache', JSON.stringify(data));
     renderResa(data);
-  } catch (e) { $('resaStatus').textContent = (cached ? $('resaStatus').textContent + ' · ' : '') + 'Actualisation impossible : ' + e.message; }
+  } catch (e) { $('resaStatus').textContent = (cached ? $('resaStatus').textContent.replace(' · mise à jour…', '') + ' · ' : '') + 'Actualisation impossible : ' + e.message; }
   finally { loadingResa = false; $('sync').classList.remove('spin'); }
 }
 
