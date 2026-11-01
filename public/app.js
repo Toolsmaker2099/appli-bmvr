@@ -644,7 +644,7 @@ function moreLikeThis(item) {
   if (!authors.length && !serie && !guess) return null;
   const row = el('div', 'more-like');
   const b = (txt, q) => { const x = el('button', 'fchip', txt); x.onclick = () => goSearch(q); row.append(x); };
-  if (authors[0]) b('✍️ Autres livres de ' + authors[0].split(',').reverse().join(' ').trim(), authors[0]);
+  if (authors[0]) b('✍️ Autres documents de ' + authors[0].split(',').reverse().join(' ').trim(), authors[0]);
   if (serie || guess) b('📚 Même série', serie || guess);
   return row;
 }
