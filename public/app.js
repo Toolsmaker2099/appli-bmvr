@@ -138,6 +138,38 @@ function renderSummary() {
     box.append(statCard('#prets', '📚', n ? `${n} en cours` : 'Aucun', 'Mes prêts', sub, late ? 'late' : soon ? 'soon' : ''));
   }
   renderMsgLine();
+  renderReminder(data);
+}
+function renderReminder(data) {
+  const box = $('reminder'); if (!box) return;
+  box.replaceChildren(); box.hidden = true;
+  if (!data || !hasCreds()) return;
+  const due = data.loans.filter((l) => daysLeft(l.dueDate) <= 3).sort((a, b) => daysLeft(a.dueDate) - daysLeft(b.dueDate));
+  if (!due.length) return;
+  box.hidden = false;
+  const late = due.some((l) => daysLeft(l.dueDate) < 0);
+  box.className = 'card reminder ' + (late ? 'late' : 'soon');
+  box.append(el('h4', '', late ? '⚠️ À rendre en priorité' : '⏰ À rendre bientôt'));
+  const ul = el('ul', 'rem-list');
+  for (const l of due) { const li = el('li'); li.append(el('span', 'rem-t', l.title), el('span', 'rem-d', rel(daysLeft(l.dueDate)) + ' · ' + shortDate(l.dueDate))); ul.append(li); }
+  box.append(ul);
+  const ren = due.filter((l) => l.canRenew && l.documentNumber);
+  const row = el('div', 'btn-row');
+  if (ren.length) {
+    const b = el('button', 'primary small', `Prolonger ${ren.length > 1 ? 'les ' + ren.length + ' prêts' : 'ce prêt'}`);
+    b.onclick = async () => {
+      b.disabled = true; b.textContent = 'Prolongation en cours…';
+      try {
+        const { results } = await call('/renew-many', { documentIds: ren.map((l) => l.documentNumber) });
+        const lines = results.map((r) => { const l = ren.find((x) => x.documentNumber === r.documentId); return `${r.extended ? '✓' : '✗'} ${l?.title || r.documentId}${r.extended ? (r.newReturnDate ? ' · jusqu’au ' + shortDate(r.newReturnDate) : '') : ' · ' + (r.message || 'refusé par la bibliothèque (document réservé par un autre lecteur ?)')}`; });
+        alert(lines.join('\n')); store.del('cache'); location.hash = '#prets'; openLoans();
+      } catch (e) { alert(e.message); b.disabled = false; b.textContent = 'Réessayer'; }
+    };
+    row.append(b);
+  }
+  const rest = due.length - ren.length;
+  if (rest) row.append(el('span', 'hint', `${rest} non prolongeable${rest > 1 ? 's' : ''} : à rapporter.`));
+  box.append(row);
 }
 function renderMsgLine() {
   const line = $('msgCard');
@@ -547,6 +579,8 @@ function searchCard(item) {
     }
     ex.append(box); li.append(ex);
   }
+  const more = moreLikeThis(item);
+  if (more) li.append(more);
   const det = el('details', 'notice');
   det.append(accSummary('📖', 'Détails du document'));
   const body = el('div', 'notice-body');
@@ -581,8 +615,26 @@ function searchCard(item) {
   return li;
 }
 
+// ---------- même auteur, même série ----------
+function goSearch(q) {
+  $('q').value = q;
+  if (location.hash !== '#chercher') { location.hash = '#chercher'; setTimeout(() => runSearch(false), 60); } else runSearch(false);
+}
+function moreLikeThis(item) {
+  const authors = fieldOf(item, 'Auteurs').split(' · ').map((a) => a.replace(/\s*[\[(].*$/, '').replace(/\s*\d{3,4}\b.*$/, '').replace(/[,\s]+$/, '').trim()).filter(Boolean);
+  const serie = fieldOf(item, 'Série').split(' · ')[0].replace(/\s*;.*$/, '').trim();
+  const title = item.title || '';
+  const guess = !serie && /^(.{3,60}?)\s*[.:]\s*\d+\s*$/.exec(title)?.[1]; // « Titre. 6 » → série « Titre »
+  if (!authors.length && !serie && !guess) return null;
+  const row = el('div', 'more-like');
+  const b = (txt, q) => { const x = el('button', 'fchip', txt); x.onclick = () => goSearch(q); row.append(x); };
+  if (authors[0]) b('✍️ Autres livres de ' + authors[0].split(',').reverse().join(' ').trim(), authors[0]);
+  if (serie || guess) b('📚 Même série', serie || guess);
+  return row;
+}
+
 // ---------- recherche : filtres, tri, pagination, scan ----------
-const SS = { q: '', page: 1, items: [], more: false, avail: false, resa: false, type: '', branch: '', sort: 'pertinence', busy: false };
+const SS = { qid: '', q: '', page: 1, items: [], more: false, avail: false, resa: false, type: '', branch: '', sort: 'pertinence', busy: false };
 const fieldOf = (it, label) => (it.fields.find(([l]) => l === label) || [])[1] || '';
 const yearOf = (it) => Number((fieldOf(it, 'Date').match(/\d{4}/) || [0])[0]);
 function applySearch() {
@@ -610,6 +662,12 @@ function renderSearch() {
     if (branches.length) row2.append(select('Toutes les bibliothèques', SS.branch, branches, (v) => { SS.branch = v; renderSearch(); }));
     const sort = el('select', 'fsel'); for (const [v, t] of [['pertinence', 'Tri : pertinence'], ['titre', 'Tri : titre A→Z'], ['recent', 'Tri : plus récent']]) sort.append(new Option(t, v));
     sort.value = SS.sort; sort.onchange = () => { SS.sort = sort.value; renderSearch(); }; row2.append(sort);
+    const save = chip('💾 Sauvegarder cette recherche', false, async () => {
+      save.disabled = true;
+      try { await call('/saved-searches', { action: 'save', queryId: SS.qid }); save.textContent = '✓ Recherche sauvegardée'; }
+      catch (e) { save.disabled = false; $('searchStatus').textContent = 'Sauvegarde impossible : ' + e.message; }
+    });
+    if (SS.qid) row1.append(save);
     tools.append(row1, row2);
   }
   const shown = applySearch();
@@ -622,11 +680,11 @@ function renderSearch() {
 async function runSearch(more) {
   if (SS.busy) return;
   SS.busy = true;
-  if (!more) { SS.q = $('q').value.trim(); SS.page = 1; SS.items = []; SS.avail = SS.resa = false; SS.type = SS.branch = ''; $('searchList').replaceChildren(); $('searchTools').hidden = true; }
+  if (!more) { SS.q = $('q').value.trim(); SS.qid = crypto.randomUUID?.() || ''; SS.page = 1; SS.items = []; SS.avail = SS.resa = false; SS.type = SS.branch = ''; $('searchList').replaceChildren(); $('searchTools').hidden = true; }
   else SS.page += 1;
   $('searchStatus').textContent = more ? 'Chargement…' : 'Recherche…'; $('moreBtn').disabled = true;
   try {
-    const data = await call('/search', { query: SS.q, page: SS.page });
+    const data = await call('/search', { query: SS.q, page: SS.page, queryId: SS.qid });
     const known = new Set(SS.items.map((it) => it.id));
     SS.items.push(...data.results.filter((it) => !known.has(it.id)));
     SS.more = data.results.length >= 20 && SS.page < 10;
@@ -725,13 +783,16 @@ function addFavButton(li, item) {
 }
 
 // ---------- mon espace ----------
-const ESPACE = { profile: 'Mon profil', favoris: 'Mes favoris', loanhistory: 'Historique des prêts', messages: 'Messages', fines: 'Amendes', bibliotheques: 'Bibliothèques' };
+const ESPACE = { profile: 'Mon profil', favoris: 'Mes favoris', loanhistory: 'Historique des prêts', messages: 'Messages', fines: 'Amendes', bibliotheques: 'Bibliothèques', nouveautes: 'Nouveautés', aujourdhui: 'À emprunter aujourd’hui', recherches: 'Mes recherches' };
 const MENU = [
   ['profile', '👤', 'Mon profil', 'Coordonnées et abonnement'],
   ['favoris', '♡', 'Mes favoris', 'Vos listes de documents'],
   ['loanhistory', '🕘', 'Historique des prêts', 'Tout ce que vous avez emprunté'],
   ['messages', '✉️', 'Messages', 'Avis de la bibliothèque'],
   ['fines', '💶', 'Amendes', 'Montants éventuels à régler'],
+  ['aujourdhui', '🎯', 'À emprunter aujourd’hui', 'Livres de vos listes disponibles, bibliothèque ouverte'],
+  ['nouveautes', '✨', 'Nouveautés', 'Derniers arrivages par bibliothèque'],
+  ['recherches', '🔎', 'Mes recherches', 'Recherches sauvegardées'],
   ['bibliotheques', '🏛️', 'Bibliothèques', 'Infos du réseau, itinéraires, horaires'],
 ];
 let espaceKind = store.get('espaceKind') || 'favoris';
@@ -1030,6 +1091,101 @@ async function showLibraries(body, status) {
   }
 }
 
+// Nouveautés : documents marqués comme nouveautés par les bibliothèques.
+async function showNouveautes(body, status) {
+  const F = { branch: '', type: '', avail: false, page: 1, items: [], busy: false };
+  const bar = el('div', 'tools'); const list = el('ul', 'cards'); const more = el('button', 'secondary', 'Voir plus de nouveautés'); more.hidden = true;
+  body.append(bar, list, more);
+  let facets = null;
+  const load = async (append) => {
+    if (F.busy) return; F.busy = true;
+    if (!append) { F.page = 1; F.items = []; list.replaceChildren(); } else F.page += 1;
+    status.textContent = 'Chargement des nouveautés…'; more.disabled = true;
+    try {
+      const d = await call('/nouveautes', { branch: F.branch, type: F.type, avail: F.avail, page: F.page });
+      if (d.branches?.length && !facets) { facets = d; paintBar(); }
+      const known = new Set(F.items.map((x) => x.id)); const add = d.results.filter((x) => !known.has(x.id));
+      F.items.push(...add); list.append(...add.map(searchCard));
+      more.hidden = !(d.results.length >= 20 && F.page < 10);
+      status.textContent = F.items.length ? `${d.total} nouveauté${d.total > 1 ? 's' : ''} · du plus récent au plus ancien` : 'Aucune nouveauté avec ces filtres.';
+    } catch (e) { if (append) F.page -= 1; status.textContent = 'Impossible de charger les nouveautés : ' + e.message; }
+    finally { F.busy = false; more.disabled = false; }
+  };
+  const paintBar = () => {
+    bar.replaceChildren();
+    const row1 = el('div', 'frow'); const row2 = el('div', 'frow');
+    const ch = el('button', 'fchip' + (F.avail ? ' on' : ''), '✓ Disponible'); ch.onclick = () => { F.avail = !F.avail; paintBar(); load(false); }; row1.append(ch);
+    const sel = (label, value, opts, fn) => { const x = el('select', 'fsel'); x.append(new Option(label, '')); for (const o of opts) x.append(new Option(o.label + (o.count ? ` (${o.count})` : ''), o.value)); x.value = value; x.onchange = () => fn(x.value); return x; };
+    const br = (facets?.branches || []).filter((b) => b.label && b.label.length < 40);
+    const ty = facets?.types || [];
+    if (br.length) row2.append(sel('Toutes les bibliothèques', F.branch, br, (v) => { F.branch = v; load(false); }));
+    if (ty.length) row2.append(sel('Tous les types', F.type, ty, (v) => { F.type = v; load(false); }));
+    bar.append(row1, row2);
+  };
+  paintBar(); more.onclick = () => load(true); await load(false);
+}
+
+// Normalisation des noms de bibliothèque (« Bibliothèque de l'Alcazar » ≈ « Alcazar »).
+const normBranch = (n) => String(n || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/biblioth[a-z]*|ludoth[a-z]*|\b(de|la|le|les|du|des|l|d)\b/g, ' ').replace(/[^a-z0-9]+/g, '');
+const sameBranch = (a, b) => { const x = normBranch(a), y = normBranch(b); return !!x && !!y && (x === y || x.includes(y) || y.includes(x)); };
+
+// Où aller aujourd'hui : livres de vos listes (hors « Déjà lu ») disponibles, et bibliothèques ouvertes.
+async function showAujourdhui(body, status) {
+  status.textContent = 'Lecture de vos listes…';
+  try {
+    const { baskets } = await call('/basket', { action: 'list' });
+    const defaults = baskets.filter((b) => b.isDefault);
+    const skip = new Set(defaults.length >= 3 ? [defaults[2].id] : []); // 3e liste standard = Déjà lu
+    const lists = baskets.filter((b) => b.count && !skip.has(b.id)).slice(0, 6);
+    if (!lists.length) { status.textContent = ''; body.append(emptyState('♡', 'Aucune liste à parcourir', 'Ajoutez des livres à vos favoris ou à « À lire plus tard » avec le bouton ♡.')); return; }
+    const seen = new Map();
+    for (const [i, b] of lists.entries()) {
+      status.textContent = `Stock de « ${b.name} » (${i + 1}/${lists.length})…`;
+      try { for (const it of (await call('/basket', { action: 'content', basketId: b.id })).results) if (!seen.has(it.id)) seen.set(it.id, { ...it, list: b.name }); } catch { /* une liste en échec n'arrête pas les autres */ }
+    }
+    const items = [...seen.values()];
+    const avail = items.filter((it) => it.copiesAvailable > 0);
+    let hours = null; try { hours = await call('/horaires'); } catch { /* sans horaires, on classe par nombre de livres */ }
+    const now = new Date(); const di = (now.getDay() + 6) % 7;
+    const rowsH = hours?.sections?.flatMap((x) => x.rows) || [];
+    const stateOf = (branch) => { const r = rowsH.find((x) => sameBranch(x.name, branch)); if (!r || di > 5) return null; return openState(r.hours[di], now); };
+    const byBranch = new Map();
+    for (const it of avail) for (const c of it.copies || []) if (c.available && !c.held) { const k = c.branch || 'Bibliothèque'; if (!byBranch.has(k)) byBranch.set(k, new Map()); byBranch.get(k).set(it.id, it); }
+    const ranked = [...byBranch].map(([name, m]) => ({ name, items: [...m.values()], st: stateOf(name) })).sort((a, b) => ({ open: 0, soon: 1 }[a.st?.[0]] ?? 2) - ({ open: 0, soon: 1 }[b.st?.[0]] ?? 2) || b.items.length - a.items.length);
+    status.textContent = `${avail.length} livre${avail.length > 1 ? 's' : ''} de vos listes disponible${avail.length > 1 ? 's' : ''} sur ${items.length}`;
+    if (!avail.length) { body.append(emptyState('⏳', 'Rien de disponible pour le moment', 'Aucun livre de vos listes n’est en rayon. Réservez-les depuis la liste pour passer en priorité.')); return; }
+    const best = ranked.find((r) => r.st && (r.st[0] === 'open' || r.st[0] === 'soon'));
+    if (best) { const hint = el('div', 'card infos'); hint.append(el('strong', '', `🎯 ${best.name}`), el('p', '', `${best.items.length} livre${best.items.length > 1 ? 's' : ''} de vos listes en rayon · ${best.st[1]}.`)); body.append(hint); }
+    for (const r of ranked) {
+      const sec = el('div'); const h = el('h3', 'sec-t', r.name);
+      const meta = el('div', 'frow'); meta.append(el('span', 'chip good', `${r.items.length} disponible${r.items.length > 1 ? 's' : ''}`)); if (r.st) meta.append(el('span', 'ostate ' + r.st[0], r.st[1]));
+      const ul = el('ul', 'cards'); for (const it of r.items) ul.append(searchCard(it));
+      sec.append(h, meta, ul); body.append(sec);
+    }
+  } catch (e) { status.textContent = 'Impossible de lire vos listes : ' + e.message; }
+}
+
+// Recherches sauvegardées du compte.
+async function showSavedSearches(body, status) {
+  status.textContent = 'Chargement de vos recherches…';
+  try {
+    const { items } = await call('/saved-searches', { action: 'list' });
+    status.textContent = ''; body.replaceChildren();
+    if (!items.length) { body.append(emptyState('🔎', 'Aucune recherche sauvegardée', 'Lancez une recherche puis touchez « Sauvegarder cette recherche ».')); return; }
+    const ul = el('ul', 'cards');
+    for (const it of items) {
+      const li = el('li', 'card'); li.append(el('h3', '', it.label || it.query || 'Recherche'));
+      if (it.date) li.append(el('p', 'hint', 'Enregistrée le ' + longDate(it.date)));
+      const row = el('div', 'btn-row');
+      const run = el('button', 'primary small', 'Relancer'); run.onclick = () => goSearch(it.query || it.label);
+      const del = el('button', 'secondary small danger', 'Supprimer');
+      del.onclick = async () => { if (!confirm('Supprimer cette recherche sauvegardée ?')) return; del.disabled = true; try { await call('/saved-searches', { action: 'delete', id: it.id }); li.remove(); } catch (e) { del.disabled = false; status.textContent = e.message; } };
+      if (it.query || it.label) row.append(run); if (it.id) row.append(del); li.append(row); ul.append(li);
+    }
+    body.append(ul);
+  } catch (e) { status.textContent = 'Impossible de charger les recherches : ' + e.message; }
+}
+
 async function openEspace(kind) {
   const body = $('espaceBody'), status = $('espaceStatus');
   $('back').hidden = !kind;
@@ -1039,6 +1195,9 @@ async function openEspace(kind) {
   if (!hasCreds()) return needLogin(body, status);
   if (espaceKind === 'favoris') return showBaskets(body, status);
   if (espaceKind === 'bibliotheques') return showLibraries(body, status);
+  if (espaceKind === 'nouveautes') return showNouveautes(body, status);
+  if (espaceKind === 'aujourdhui') return showAujourdhui(body, status);
+  if (espaceKind === 'recherches') return showSavedSearches(body, status);
   status.textContent = 'Chargement…';
   try {
     const d = await call('/account', { kind: espaceKind });

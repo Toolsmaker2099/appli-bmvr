@@ -546,11 +546,11 @@ async function attachStock(c, token, results, max = 30) {
   }));
 }
 
-export async function searchCatalogue(creds, query, fetchFn = fetch, debug = false, page = 1) {
+export async function searchCatalogue(creds, query, fetchFn = fetch, debug = false, page = 1, queryId = '') {
   const q = String(query ?? '').trim().slice(0, 200);
   if (!q) throw new Error('Saisis un titre, un auteur ou un mot-clé');
   const { c, token } = await login(creds, fetchFn);
-  const res = failIfError(await c.post(token, 'search', { query: [q], queryid: 'NONE', sf: '*', includeFacets: false, pageNo: Math.min(Math.max(Number(page) || 1, 1), 10), pageSize: 20, locale: 'fr' }), 'Recherche');
+  const res = failIfError(await c.post(token, 'search', { query: [q], queryid: /^[0-9a-f-]{36}$/i.test(queryId) ? queryId : 'NONE', sf: '*', includeFacets: false, pageNo: Math.min(Math.max(Number(page) || 1, 1), 10), pageSize: 20, locale: 'fr' }), 'Recherche');
   const results = parseSearch(res);
   await attachStock(c, token, results);
   return debug ? { results, shape: shapeOf(res), firstKeys: Object.keys(res?.resultSet?.[0] ?? {}), metaKeys: Object.keys(res?.resultSet?.[0]?.meta ?? {}) } : { results, total: res.totalHits ?? res.total ?? results.length };
@@ -1023,4 +1023,45 @@ export async function fetchHours(fetchFn = fetch) {
   let g = r;
   if (!r?.content) g = await c.get(null, 'contentGraphByPath', { locale: 'fr', path: '/horaires-ete-bibliotheques', depth: 6 });
   return { ...parseHours(g), fetchedAt: new Date().toISOString() };
+}
+
+// Nouveautés : documents marqués « Nouveauté » par la bibliothèque (IsNovelty), du plus récent au plus ancien, sans compte requis.
+const CODE_RE = /^[A-Za-z0-9_]{1,24}$/;
+export async function fetchNouveautes({ branch, type, avail, page } = {}, fetchFn = fetch) {
+  const c = makeClient(fetchFn);
+  await c.init();
+  const fq = ['IsNovelty:1'];
+  if (branch && CODE_RE.test(branch)) fq.push(`StockHomeLocationCode:"${branch}"`);
+  if (type && CODE_RE.test(type)) fq.push(`ZMAT:"${type}"`);
+  if (avail === true) fq.push('IsAvailable:1');
+  const pageNo = Math.min(Math.max(Number(page) || 1, 1), 10);
+  const res = failIfError(await c.post(null, 'search', { query: ['*:*'], fq, queryid: 'NONE', sf: '*', includeFacets: pageNo === 1, pageNo, pageSize: 20, locale: 'fr', order: 'DateOfPublicationSearch_date_DESC' }), 'Nouveautés');
+  const results = parseSearch(res);
+  await attachStock(c, null, results, 20);
+  const facet = (code) => (res.facets ?? []).find((f) => (f.code ?? f.name) === code)?.items?.map((i) => ({ value: String(i.value), label: String(i.caption ?? i.display ?? i.value), count: i.count })) ?? [];
+  return { results, total: res.numHits ?? results.length, branches: facet('StockHomeLocationCode'), types: facet('ZMAT').slice(0, 10) };
+}
+
+// Recherches sauvegardées du compte (le portail les appelle « savedSearches »).
+export async function savedSearches(creds, body, fetchFn = fetch) {
+  const { c, token } = await login(creds, fetchFn);
+  if (body.action === 'delete') {
+    if (!ID_RE.test(body.id ?? '')) throw new Error('Recherche invalide');
+    failIfError(await c.get(token, 'deleteSavedSearch', { id: body.id }), 'Suppression');
+    return { ok: true };
+  }
+  if (body.action === 'save') {
+    if (!ID_RE.test(body.queryId ?? '')) throw new Error('Recherche invalide');
+    failIfError(await c.get(token, 'saveSearchById', { id: body.queryId }), 'Sauvegarde');
+    return { ok: true };
+  }
+  const res = failIfError(await c.get(token, 'savedSearches', { locale: 'fr' }), 'Recherches sauvegardées');
+  const arr = Array.isArray(res) ? res : res?.items ?? res?.searches ?? res?.savedSearches ?? res?.results ?? [];
+  const str = (v) => (typeof v === 'string' ? v.trim() : Array.isArray(v) ? str(v[0]) : v && typeof v === 'object' ? str(v.value ?? v.display ?? v.label ?? v.fr ?? Object.values(v).find((x) => typeof x === 'string')) : '');
+  const items = arr.map((s) => {
+    const d = s?.data ?? s;
+    const query = str(d.query ?? d.queryString ?? d.q ?? d.terms ?? d.text ?? d.label ?? d.title ?? d.name);
+    return { id: String(d.id ?? d.queryId ?? d.queryid ?? d.iid ?? ''), query, label: str(d.title ?? d.label ?? d.name) || query, date: toISODate(d.date ?? d.creationDate ?? d.savedDate ?? d.lastModified) };
+  }).filter((x) => x.id || x.query);
+  return body.debug ? { items, shape: shapeOf(res) } : { items };
 }

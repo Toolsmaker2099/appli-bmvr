@@ -247,3 +247,10 @@ a.primary.linkbtn{background:var(--accent);color:var(--accent-fg);display:block;
 .wd.today{background:rgba(120,120,255,.12);font-weight:600}
 .sec-t{margin:16px 0 6px;font-size:1rem}
 .libcard.hours .linkbtn{margin-top:4px}
+.more-like{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 2px}
+.card.reminder{padding:12px 14px;margin:10px 0;border-left:4px solid var(--warn,#c77d00)}
+.card.reminder.late{border-left-color:#b3261e}
+.card.reminder h4{margin:0 0 6px}
+.rem-list{list-style:none;margin:0 0 8px;padding:0;display:grid;gap:6px}
+.rem-list li{display:flex;flex-direction:column;font-size:.92rem}
+.rem-d{color:#777;font-size:.82rem}
