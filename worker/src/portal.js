@@ -1094,3 +1094,14 @@ export async function savedSearches(creds, body, fetchFn = fetch) {
   }).filter((x) => x.id || x.query);
   return body.debug ? { items, shape: shapeOf(res) } : { items };
 }
+
+// Fiches complètes (comme les résultats de recherche) pour une liste d'identifiants de documents : sert l'historique des prêts.
+export async function fetchDocuments(creds, ids, fetchFn = fetch) {
+  const list = [...new Set((Array.isArray(ids) ? ids : []).map(String))].filter((x) => ID_RE.test(x)).slice(0, 15);
+  if (!list.length) return { results: [] };
+  const { c, token } = await login(creds, fetchFn);
+  const res = failIfError(await c.post(token, 'search', { query: ['*:*'], fq: [list.map((x) => `id:"${x}"`).join(' OR ')], queryid: 'NONE', sf: '*', includeFacets: false, pageNo: 1, pageSize: list.length, locale: 'fr' }), 'Documents');
+  const results = parseSearch(res);
+  await attachStock(c, token, results, 15);
+  return { results };
+}

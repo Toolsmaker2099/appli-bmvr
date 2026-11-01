@@ -1,4 +1,4 @@
-import { fetchLoans, fetchServiceUrl, renewLoan, renewMany, fetchHours, fetchNouveautes, savedSearches, diagnose, fetchReservations, cancelReservation, searchCatalogue, reserveInfo, reserveRank, makeReservation, fetchAccount, deleteMessage, withSession, basketOp, fetchNotice, AuthError } from './portal.js';
+import { fetchLoans, fetchServiceUrl, renewLoan, renewMany, fetchHours, fetchNouveautes, fetchDocuments, savedSearches, diagnose, fetchReservations, cancelReservation, searchCatalogue, reserveInfo, reserveRank, makeReservation, fetchAccount, deleteMessage, withSession, basketOp, fetchNotice, AuthError } from './portal.js';
 
 // Relais multi-utilisateurs sans état : l'appli envoie les identifiants BMVR de la personne à chaque requête (HTTPS),
 // le relais s'en sert pour interroger le portail puis les oublie. Rien n'est stocké ni journalisé.
@@ -23,7 +23,7 @@ export default {
     if (req.method === 'OPTIONS') return new Response(null, { status: ok ? 204 : 403, headers: cors });
 
     const url = new URL(req.url);
-    if (req.method !== 'POST' || !['/loans', '/service', '/renew', '/renew-many', '/horaires', '/nouveautes', '/saved-searches', '/reservations', '/cancel', '/search', '/reserve-info', '/reserve-rank', '/reserve', '/account', '/delete-message', '/basket', '/notice'].includes(url.pathname)) return json({ error: 'introuvable' }, 404, cors);
+    if (req.method !== 'POST' || !['/loans', '/service', '/renew', '/renew-many', '/horaires', '/nouveautes', '/documents', '/saved-searches', '/reservations', '/cancel', '/search', '/reserve-info', '/reserve-rank', '/reserve', '/account', '/delete-message', '/basket', '/notice'].includes(url.pathname)) return json({ error: 'introuvable' }, 404, cors);
     if (!ok) return json({ error: 'origine non autorisée' }, 403, cors);
 
     // Limite de débit (par adresse, en mémoire de l'instance) : freine les abus sans rien stocker de durable.
@@ -38,7 +38,7 @@ export default {
     }
 
     try {
-      const READS = ['/loans', '/reservations', '/account', '/search', '/notice', '/reserve-info', '/basket'];
+      const READS = ['/documents', '/loans', '/reservations', '/account', '/search', '/notice', '/reserve-info', '/basket'];
       const who = { username, password, cache: READS.includes(url.pathname) && !(url.pathname === '/basket' && body.action && body.action !== 'list' && body.action !== 'content') };
       if (url.pathname === '/reservations') return json({ ...(await withSession(who, (w) => fetchReservations(w, fetch, body.debug === true))), fetchedAt: new Date().toISOString() }, 200, cors);
       if (url.pathname === '/cancel') return json(await cancelReservation(who, body), 200, cors);
@@ -50,6 +50,7 @@ export default {
       if (url.pathname === '/delete-message') return json(await deleteMessage(who, body.id), 200, cors);
       if (url.pathname === '/basket') return json(await withSession(who, (w) => basketOp(w, body, fetch, body.debug === true)), 200, cors);
       if (url.pathname === '/notice') return json(await withSession(who, (w) => fetchNotice(w, body.id, fetch, body.debug === true)), 200, cors);
+      if (url.pathname === '/documents') return json(await withSession(who, (w) => fetchDocuments(w, body.ids)), 200, cors);
       if (url.pathname === '/nouveautes') return json(await fetchNouveautes(body), 200, cors);
       if (url.pathname === '/saved-searches') return json(await withSession(who, (w) => savedSearches(w, body)), 200, cors);
       if (url.pathname === '/horaires') return json(await fetchHours(), 200, cors);

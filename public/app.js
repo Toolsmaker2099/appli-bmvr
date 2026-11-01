@@ -775,6 +775,32 @@ function favSheet(item, li, row) {
   }).catch((e) => { msg.textContent = e.message; msg.className = 'hint msg err'; });
 }
 
+// Historique des prêts : la carte se complète (exemplaires, détails, réservation, favoris…) comme un résultat de recherche,
+// à mesure qu'elle apparaît à l'écran. Les documents sont lus par lots pour ménager le relais.
+const HQ = { queue: [], timer: null, io: null };
+function enrichHistory(li, it) {
+  if (!it.coverId) return; // sans identifiant : le bouton « Favoris » retrouve le document par son titre
+  HQ.io ||= new IntersectionObserver((entries) => {
+    for (const e of entries) if (e.isIntersecting) { HQ.io.unobserve(e.target); HQ.queue.push(e.target); }
+    clearTimeout(HQ.timer); HQ.timer = setTimeout(flushHistory, 200);
+  }, { rootMargin: '300px' });
+  li._hist = it; HQ.io.observe(li);
+}
+async function flushHistory() {
+  const cards = HQ.queue.splice(0, 12); if (!cards.length) return;
+  try {
+    const { results } = await call('/documents', { ids: cards.map((c) => c._hist.coverId) });
+    const by = new Map(results.map((r) => [r.id, r]));
+    for (const li of cards) {
+      const res = by.get(li._hist.coverId); if (!res || !li.isConnected) continue;
+      const full = searchCard(res);
+      const mine = rows(li._hist.fields.filter(([l]) => !/^(titre|auteurs?|objet)$/i.test(l)));
+      if (mine) { mine.classList.add('hist-rows'); full.querySelector('.card-head')?.after(mine); }
+      li.replaceWith(full);
+    }
+  } catch { /* la carte simple reste affichée */ }
+  if (HQ.queue.length) setTimeout(flushHistory, 100);
+}
 function addFavButton(li, item) {
   if (!item.coverId && !item.title) return;
   const row = el('div', 'btn-row');
@@ -1240,7 +1266,7 @@ async function openEspace(kind) {
     const seen = espaceKind === 'messages' ? seenSet() : null;
     for (const it of items) {
       const li = espaceKind === 'messages' ? messageCard(it, !seen.has(it.id)) : plainCard(it);
-      if (espaceKind === 'loanhistory') addFavButton(li, it);
+      if (espaceKind === 'loanhistory') { addFavButton(li, it); enrichHistory(li, it); }
       if (seen && !seen.has(it.id) && espaceKind !== 'messages') { li.classList.add('unread'); const h = li.querySelector('h3'); if (h) h.before(el('span', 'chip good new-chip', 'Nouveau')); }
       ul.append(li);
     }
