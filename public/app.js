@@ -825,7 +825,7 @@ function addFavButton(li, item) {
 }
 
 // ---------- mon espace ----------
-const ESPACE = { profile: 'Mon profil', favoris: 'Mes favoris', loanhistory: 'Historique des prêts', messages: 'Messages', fines: 'Amendes', bibliotheques: 'Bibliothèques', nouveautes: 'Nouveautés', aujourdhui: 'À emprunter aujourd’hui', recherches: 'Mes recherches' };
+const ESPACE = { profile: 'Mon profil', favoris: 'Mes favoris', loanhistory: 'Historique des prêts', messages: 'Messages', fines: 'Amendes', bibliotheques: 'Bibliothèques', nouveautes: 'Nouveautés', aujourdhui: 'À emprunter aujourd’hui', recherches: 'Mes recherches', enligne: 'Services en ligne' };
 const MENU = [
   ['profile', '👤', 'Mon profil', 'Coordonnées et abonnement'],
   ['favoris', '♡', 'Mes favoris', 'Vos listes de documents'],
@@ -835,6 +835,7 @@ const MENU = [
   ['aujourdhui', '🎯', 'À emprunter aujourd’hui', 'Livres de vos listes disponibles, bibliothèque ouverte'],
   ['nouveautes', '✨', 'Nouveautés', 'Derniers arrivages par bibliothèque'],
   ['recherches', '🔎', 'Mes recherches', 'Recherches sauvegardées'],
+  ['enligne', '🌐', 'Services en ligne', 'Presse, livres numériques, cinéma, formation…'],
   ['bibliotheques', '🏛️', 'Bibliothèques', 'Infos du réseau, itinéraires, horaires'],
 ];
 let espaceKind = store.get('espaceKind') || 'favoris';
@@ -1133,6 +1134,58 @@ async function showLibraries(body, status) {
   }
 }
 
+// Services en ligne : lus à chaque ouverture sur la page officielle « En ligne ».
+const SVC_ICON = { Presse: '📰', 'Livres numériques': '📱', 'Se former en ligne': '🎓', Cinéma: '🎬', Musique: '🎵', Jeunesse: '🧒', Encyclopédies: '📚', Sciences: '🔬', 'Sciences humaines': '🏛️', Podcasts: '🎧' };
+async function openService(it, btn, status) {
+  const open = (u) => window.open(u, '_blank', 'noopener');
+  if (it.name === 'Marsactu') return open('https://www.bmvr.marseille.fr/en-ligne'); // accès par clic depuis le site de la BMVR (voir plus haut)
+  if (it.kind !== 'sso') return open(it.url);
+  if (!hasCreds()) { location.hash = '#compte'; return; }
+  const label = btn.textContent; btn.disabled = true; btn.textContent = 'Connexion…';
+  try {
+    const r = await fetch(RELAY + '/service', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: store.get('user'), password: store.get('pass'), url: it.url }) });
+    const data = await r.json();
+    if (r.status === 401) { signOut(); location.hash = '#compte'; $('err').textContent = data.error || 'Identifiants refusés par la BMVR.'; return; }
+    if (!r.ok) throw new Error(data.error || 'HTTP ' + r.status);
+    location.assign(data.url);
+  } catch (e) {
+    // La connexion automatique n'a pas abouti : on ouvre la page du service (ou, à défaut, celle de la BMVR), où l'on se connecte comme sur le site.
+    status.textContent = `${it.name} : connexion automatique impossible (${e.message}). Ouverture de la page du service.`;
+    open(it.external ? it.url : 'https://www.bmvr.marseille.fr/en-ligne');
+  } finally { btn.disabled = false; btn.textContent = label; }
+}
+async function showServices(body, status) {
+  status.textContent = 'Lecture de la page officielle…';
+  try {
+    const d = await call('/services');
+    status.textContent = '';
+    const filter = el('input'); filter.type = 'search'; filter.placeholder = 'Filtrer les services…'; filter.className = 'svc-filter'; filter.setAttribute('aria-label', 'Filtrer les services');
+    const box = el('div');
+    body.append(filter, box);
+    const draw = () => {
+      const q = filter.value.trim().toLowerCase(); box.replaceChildren(); let n = 0;
+      for (const sec of d.sections) {
+        const items = sec.items.filter((it) => !q || (it.name + ' ' + it.desc + ' ' + sec.title).toLowerCase().includes(q));
+        if (!items.length) continue; n += items.length;
+        box.append(el('h3', 'sec-t', `${SVC_ICON[sec.title] || '🌐'} ${sec.title}`));
+        const ul = el('ul', 'cards');
+        for (const it of items) {
+          const li = el('li', 'card svc');
+          const h = el('div', 'svc-h'); h.append(el('strong', '', it.name), el('span', 'chip ' + (it.access === 'Accessible à distance' ? 'good' : it.access === 'Accès libre' ? 'good' : 'warn'), it.access === 'Accessible à distance' ? 'À distance' : it.access === 'Accès libre' ? 'Accès libre' : 'Dans les bibliothèques'));
+          li.append(h);
+          if (it.desc) li.append(el('p', 'svc-d', it.desc));
+          const b = el('button', 'primary small', it.kind === 'notice' ? 'Voir sur le site de la BMVR' : 'Ouvrir'); b.onclick = () => openService(it, b, status);
+          li.append(b); ul.append(li);
+        }
+        box.append(ul);
+      }
+      if (!n) box.append(emptyState('🔎', 'Aucun service', 'Aucun service ne correspond à ce filtre.'));
+    };
+    filter.oninput = draw; draw();
+    body.append(el('p', 'hint', 'Services lus sur la page « En ligne » du site officiel. Les services « à distance » s’ouvrent connectés avec votre carte ; si la connexion automatique échoue, la page du service s’ouvre pour vous connecter comme sur le site.'));
+  } catch (e) { status.textContent = 'Impossible de lire les services : ' + e.message; }
+}
+
 // Nouveautés : documents marqués comme nouveautés par les bibliothèques.
 async function showNouveautes(body, status) {
   const F = { branch: '', type: '', avail: false, page: 1, items: [], busy: false };
@@ -1238,6 +1291,7 @@ async function openEspace(kind) {
   if (espaceKind === 'favoris') return showBaskets(body, status);
   if (espaceKind === 'bibliotheques') return showLibraries(body, status);
   if (espaceKind === 'nouveautes') return showNouveautes(body, status);
+  if (espaceKind === 'enligne') return showServices(body, status);
   if (espaceKind === 'aujourdhui') return showAujourdhui(body, status);
   if (espaceKind === 'recherches') return showSavedSearches(body, status);
   status.textContent = 'Chargement…';

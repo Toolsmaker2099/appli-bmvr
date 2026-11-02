@@ -1,4 +1,4 @@
-import { fetchLoans, fetchServiceUrl, renewLoan, renewMany, fetchHours, fetchNouveautes, fetchDocuments, savedSearches, diagnose, fetchReservations, cancelReservation, searchCatalogue, reserveInfo, reserveRank, makeReservation, fetchAccount, deleteMessage, withSession, basketOp, fetchNotice, AuthError } from './portal.js';
+import { fetchLoans, fetchServiceUrl, renewLoan, renewMany, fetchHours, fetchNouveautes, fetchServices, fetchDocuments, savedSearches, diagnose, fetchReservations, cancelReservation, searchCatalogue, reserveInfo, reserveRank, makeReservation, fetchAccount, deleteMessage, withSession, basketOp, fetchNotice, AuthError } from './portal.js';
 
 // Relais multi-utilisateurs sans état : l'appli envoie les identifiants BMVR de la personne à chaque requête (HTTPS),
 // le relais s'en sert pour interroger le portail puis les oublie. Rien n'est stocké ni journalisé.
@@ -23,7 +23,7 @@ export default {
     if (req.method === 'OPTIONS') return new Response(null, { status: ok ? 204 : 403, headers: cors });
 
     const url = new URL(req.url);
-    if (req.method !== 'POST' || !['/loans', '/service', '/renew', '/renew-many', '/horaires', '/nouveautes', '/documents', '/saved-searches', '/reservations', '/cancel', '/search', '/reserve-info', '/reserve-rank', '/reserve', '/account', '/delete-message', '/basket', '/notice'].includes(url.pathname)) return json({ error: 'introuvable' }, 404, cors);
+    if (req.method !== 'POST' || !['/loans', '/service', '/renew', '/renew-many', '/horaires', '/nouveautes', '/services', '/documents', '/saved-searches', '/reservations', '/cancel', '/search', '/reserve-info', '/reserve-rank', '/reserve', '/account', '/delete-message', '/basket', '/notice'].includes(url.pathname)) return json({ error: 'introuvable' }, 404, cors);
     if (!ok) return json({ error: 'origine non autorisée' }, 403, cors);
 
     // Limite de débit (par adresse, en mémoire de l'instance) : freine les abus sans rien stocker de durable.
@@ -56,9 +56,17 @@ export default {
       if (url.pathname === '/horaires') return json(await fetchHours(), 200, cors);
       if (url.pathname === '/renew-many') return json(await renewMany({ username, password }, body.documentIds), 200, cors);
       if (url.pathname === '/renew') return json(await renewLoan({ username, password }, body.documentId), 200, cors);
+      if (url.pathname === '/services') return json(await fetchServices(), 200, cors);
       if (url.pathname === '/service') {
         const trace = [];
-        try { return json({ url: await fetchServiceUrl({ username, password }, body.service, fetch, trace, body.follow === true), trace }, 200, cors); } catch (e) { return json({ error: e.message, trace }, e instanceof AuthError ? 401 : 502, cors); }
+        // Une adresse n'est suivie que si elle figure sur la page officielle « En ligne » (jamais une adresse libre).
+        let service = body.service;
+        if (typeof body.url === 'string') {
+          const ok = (await fetchServices()).sections.some((x) => x.items.some((i) => i.url === body.url && i.kind === 'sso'));
+          if (!ok) return json({ error: 'Service inconnu' }, 400, cors);
+          service = { url: body.url };
+        }
+        try { return json({ url: await fetchServiceUrl({ username, password }, service, fetch, trace, body.follow === true), trace }, 200, cors); } catch (e) { return json({ error: e.message, trace }, e instanceof AuthError ? 401 : 502, cors); }
       }
       if (body.diagnostic === true) return json(await diagnose({ username, password }), 200, cors);
       const r = await withSession(who, (w) => fetchLoans(w, fetch, body.debug === true));

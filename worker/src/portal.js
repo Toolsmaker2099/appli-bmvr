@@ -281,7 +281,7 @@ export const SERVICES = {
 
 // Connexion à la BMVR puis adresse d'entrée (avec ticket) du service demandé.
 export async function fetchServiceUrl({ username, password }, service, fetchFn = fetch, trace = [], follow = false) {
-  const start = SERVICES[service];
+  const start = typeof service === 'string' && SERVICES[service] ? SERVICES[service] : service?.url;
   if (!start) throw new Error('Service inconnu');
   const c = makeClient(fetchFn);
   await c.init();
@@ -1104,4 +1104,62 @@ export async function fetchDocuments(creds, ids, fetchFn = fetch) {
   const results = parseSearch(res);
   await attachStock(c, token, results, 15);
   return { results };
+}
+
+// Services en ligne : lus à chaque appel dans la page officielle « En ligne » (presse, livres numériques, formation, cinéma…).
+// Dans la page, chaque ressource suit le motif : liens, mention d'accès (« Accessible à distance »…), nom, description.
+const ACCESS_RE = /^(Accessible [àa] distance|Accessible dans les biblioth[èe]ques|Acc[èe]s libre)$/i;
+const SKIP_TEXT = /^(Voir les contenus|Vid[ée]o de pr[ée]sentation|Guide [àa] t[ée]l[ée]charger|En savoir plus)$/i;
+const decode = (t) => String(t).replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;|&apos;/g, "'").replace(/&rsquo;/g, '\u2019').replace(/\s+/g, ' ').trim();
+export function parseServices(graph) {
+  const pages = Object.values(graph?.content ?? {}).filter((v) => v?.contentType === 'CMSPage');
+  const page = pages.find((v) => v.properties?.title?.fr === 'En ligne') ?? pages[0];
+  const data = page?.properties?.content?.data ?? [];
+  const nodes = new Map(data.map((n) => [String(n.id), n]));
+  const sections = []; let cur = null; let pending = []; let res = null; let expect = null; const seen = new Set(); const names = new Set();
+  const flush = () => {
+    if (!res) return;
+    res.links = res.links.filter(Boolean);
+    const isNotice = (u) => /^(\/|https:\/\/www\.bmvr\.marseille\.fr\/)(notice|permalink|bibliotheque-numerique)/.test(u);
+    const main = res.links.find((u) => !isNotice(u)) ?? res.links[0] ?? '';
+    const abs = main.startsWith('/') ? 'https://www.bmvr.marseille.fr' + main : main;
+    if (res.name && !names.has(res.name) && /^https?:\/\//.test(abs)) {
+      names.add(res.name);
+      const external = new URL(abs).host !== 'www.bmvr.marseille.fr';
+      const kind = isNotice(main) ? 'notice' : /^Acc[èe]s libre$/i.test(res.access) ? 'direct' : 'sso';
+      if (!cur) { cur = { title: 'Services', items: [] }; sections.push(cur); }
+      cur.items.push({ name: res.name, desc: res.desc || '', access: /distance/i.test(res.access) ? 'Accessible à distance' : /biblioth/i.test(res.access) ? 'Dans les bibliothèques' : 'Accès libre', url: abs, kind, external });
+    }
+    res = null; expect = null;
+  };
+  const walk = (n) => {
+    if (seen.has(n.id)) return; seen.add(n.id);
+    const link = n.props?.link?.options?.url; const lu = typeof link === 'object' ? link?.fr : link;
+    if (n.tag === 'Link' && typeof lu === 'string' && lu.trim()) {
+      let u = lu.trim().replace(/&amp;/g, '&').replace(/^https:\/\/www\.bmvr\.marseille\.fr(?=\/)/, '');
+      const m = u.match(/^\/login\?backUrl=(.+)$/);
+      if (m) { try { u = decodeURIComponent(m[1]); } catch { u = m[1]; } if (!/^(\/|https?:)/.test(u)) u = '/' + u; }
+      if (!/^\/(account|en-ligne)/.test(u)) pending.push(u);
+    }
+    let c = n.children; if (c && typeof c === 'object' && !Array.isArray(c)) c = c.fr;
+    if (/^TextBox/.test(n.tag) && typeof c === 'string') {
+      const t = decode(c.replace(/<[^>]+>/g, ' '));
+      if (t && !SKIP_TEXT.test(t)) {
+        if (ACCESS_RE.test(t)) { flush(); res = { access: t, links: pending, name: '', desc: '' }; pending = []; expect = 'name'; }
+        else if (res && expect === 'name') { res.name = t; expect = 'desc'; }
+        else if (res && expect === 'desc') { res.desc = t.slice(0, 400); flush(); }
+        else if (t.length < 40 && !res) { cur = { title: t, items: [] }; sections.push(cur); pending = []; }
+      }
+    }
+    if (Array.isArray(n.children)) for (const id of n.children) { const k = nodes.get(String(id)); if (k) walk(k); }
+  };
+  for (const n of data.filter((x) => !nodes.has(String(x.parent)))) walk(n);
+  flush();
+  return { sections: sections.filter((x) => x.items.length) };
+}
+export async function fetchServices(fetchFn = fetch) {
+  const c = makeClient(fetchFn);
+  await c.init();
+  const g = await c.get(null, 'contentGraphByPath', { locale: 'fr', path: '/en-ligne', depth: 6 });
+  return { ...parseServices(g), fetchedAt: new Date().toISOString() };
 }
