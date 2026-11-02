@@ -25,6 +25,7 @@ const store = {
   del: (k) => raw.del(storeKey(k)),
 };
 function addProfile(user, pass) {
+  if (isRestricted()) return;
   const list = getProfiles();
   let p = list.find((x) => x.user.toLowerCase() === user.toLowerCase());
   if (!p) { p = { id: 'a' + Date.now().toString(36), user }; list.push(p); raw.set('profiles', JSON.stringify(list)); }
@@ -32,7 +33,7 @@ function addProfile(user, pass) {
 }
 function switchProfile(id) { raw.set('active', id); location.hash = '#accueil'; location.reload(); }
 function removeActiveProfile() {
-  const id = activeId(); if (!id) return;
+  const id = activeId(); if (!id || isRestricted()) return;
   for (const k of PER) raw.del(`p:${id}:${k}`);
   const rest = getProfiles().filter((x) => x.id !== id);
   raw.set('profiles', JSON.stringify(rest)); raw.set('active', rest[0]?.id || '');
@@ -41,7 +42,9 @@ function removeActiveProfile() {
 // Garde-fou de l'appli, pas un coffre-fort : les identifiants restent dans le navigateur de l'appareil.
 const curProfile = () => getProfiles().find((x) => x.id === activeId());
 const isRestricted = () => curProfile()?.mode === 'restricted';
-function patchProfile(id, patch) { raw.set('profiles', JSON.stringify(getProfiles().map((p) => (p.id === id ? { ...p, ...patch } : p)))); }
+function patchProfile(id, patch) {
+  if (isRestricted()) return; // un compte restreint ne modifie aucun compte
+  raw.set('profiles', JSON.stringify(getProfiles().map((p) => (p.id === id ? { ...p, ...patch } : p)))); }
 async function pinHash(id, pin) { const b = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`bmvr:${id}:${pin}`)); return [...new Uint8Array(b)].map((x) => x.toString(16).padStart(2, '0')).join(''); }
 const unlockedId = () => { try { return sessionStorage.getItem('unlocked') || ''; } catch { return ''; } };
 const setUnlocked = (id) => { try { if (id) sessionStorage.setItem('unlocked', id); else sessionStorage.removeItem('unlocked'); } catch {} };
@@ -1379,20 +1382,24 @@ function renderAccount() {
       ul.append(li);
     }
     box.append(ul);
-    if (activeId() && !addingAccount) box.append(accessPanel());
-    if (!addingAccount) { const add = el('button', 'secondary', '➕ Ajouter un autre compte'); add.onclick = () => { addingAccount = true; renderAccount(); }; box.append(add); }
+    if (isRestricted()) box.append(el('p', 'hint', '🔒 Compte à accès restreint : seul un compte à accès complet peut ajouter, modifier ou retirer des comptes.'));
+    else if (!addingAccount) for (const pr of [...list].sort((a, b) => (b.id === activeId()) - (a.id === activeId()))) box.append(accessPanel(pr));
+    if (!addingAccount && !isRestricted()) { const add = el('button', 'secondary', '➕ Ajouter un autre compte'); add.onclick = () => { addingAccount = true; renderAccount(); }; box.append(add); }
   }
   $('diag').hidden = !on; $('diagSearch').hidden = !on; $('diagMars').hidden = !on;
+  $('reset').hidden = isRestricted();
+  if (isRestricted()) { addingAccount = false; $('loginBox').hidden = on; }
 }
 
 $('save').onclick = () => {
+  if (isRestricted()) { $('err').textContent = 'Accès restreint : impossible d’ajouter un compte.'; return; }
   const u = $('user').value.trim(), p = $('pass').value;
   if (!u || !p) { $('err').textContent = 'Saisissez votre identifiant et votre mot de passe.'; return; }
   addProfile(u, p); addingAccount = false; renderUserChip();
   $('user').value = ''; $('pass').value = ''; $('err').textContent = '';
   location.hash = '#prets';
 };
-$('reset').onclick = () => { if (!confirm('Retirer ce compte de cet appareil ?')) return; signOut(); location.hash = '#accueil'; location.reload(); };
+$('reset').onclick = () => { if (isRestricted()) return; if (!confirm('Retirer ce compte de cet appareil ?')) return; signOut(); location.hash = '#accueil'; location.reload(); };
 $('sync').onclick = () => (location.hash === '#resa' ? openReservations() : openLoans());
 $('diagSearch').onclick = async () => {
   $('diagOut').hidden = false; $('diagOut').textContent = 'Diagnostic en cours…';
@@ -1459,35 +1466,35 @@ if ('serviceWorker' in navigator) {
 updateBadge();
 updateEspaceBadge();
 // Réglages d'accès du compte actif : complet ou restreint, code à 4 chiffres.
-function accessPanel() {
-  const pr = curProfile(); const card = el('div', 'card access');
-  card.append(el('h4', '', '🔐 Accès à ce compte'));
+function accessPanel(pr) {
+  const self = pr.id === activeId(); const card = el('div', 'card access');
+  card.append(el('h4', '', self ? '🔐 Accès à ce compte' : '🔐 Accès de ' + pr.user));
   const seg = el('div', 'seg');
-  const mk = (mode, txt) => { const b = el('button', 'seg-b' + ((pr.mode || 'full') === mode ? ' on' : ''), txt); b.onclick = async () => { if (!await askCurrentPin(pr, msg)) return; patchProfile(pr.id, { mode }); renderAccount(); renderUserChip(); }; return b; };
+  const mk = (mode, txt) => { const b = el('button', 'seg-b' + ((pr.mode || 'full') === mode ? ' on' : ''), txt); b.onclick = async () => { if ((pr.mode || 'full') === mode) return; if (!await askCurrentPin(pr, msg, cur)) return; if (mode === 'restricted' && self && !confirm('Ce compte ne pourra plus ajouter ni modifier de comptes (c’est un autre compte à accès complet qui pourra le rétablir). Continuer ?')) return; patchProfile(pr.id, { mode }); renderAccount(); renderUserChip(); }; return b; };
   seg.append(mk('full', 'Accès complet'), mk('restricted', 'Accès restreint'));
   card.append(seg);
   card.append(el('p', 'hint', (pr.mode === 'restricted' ? 'Lecture seule : on peut consulter prêts, réservations, recherche et services, mais ni réserver, ni prolonger, ni annuler, ni supprimer un message, ni modifier les listes.' : 'Toutes les actions sur le compte BMVR sont possibles.') + (pr.mode === 'restricted' && !pr.pin ? ' Sans code, n’importe qui peut repasser en accès complet : ajoutez un code.' : '')));
   const msg = el('p', 'hint err');
-  const cur = el('input'); cur.type = 'password'; cur.inputMode = 'numeric'; cur.maxLength = 4; cur.placeholder = 'Code actuel'; cur.autocomplete = 'off'; cur.className = 'pin-in'; cur.hidden = !pr.pin; cur.id = 'curPin';
+  const cur = el('input'); cur.type = 'password'; cur.inputMode = 'numeric'; cur.maxLength = 4; cur.placeholder = 'Code actuel'; cur.autocomplete = 'off'; cur.className = 'pin-in'; cur.hidden = !pr.pin || !self;
   const neu = el('input'); neu.type = 'password'; neu.inputMode = 'numeric'; neu.maxLength = 4; neu.placeholder = pr.pin ? 'Nouveau code' : 'Code à 4 chiffres'; neu.autocomplete = 'off'; neu.className = 'pin-in';
   const save = el('button', 'secondary small', pr.pin ? 'Changer le code' : 'Définir un code');
   save.onclick = async () => {
     if (!/^\d{4}$/.test(neu.value)) { msg.textContent = 'Le code doit comporter exactement 4 chiffres.'; return; }
-    if (!await askCurrentPin(pr, msg)) return;
-    patchProfile(pr.id, { pin: await pinHash(pr.id, neu.value) }); setUnlocked(pr.id); renderAccount();
+    if (!await askCurrentPin(pr, msg, cur)) return;
+    patchProfile(pr.id, { pin: await pinHash(pr.id, neu.value) }); if (self) setUnlocked(pr.id); renderAccount();
   };
   const row = el('div', 'pin-row'); row.append(cur, neu, save); card.append(row);
   if (pr.pin) {
     const del = el('button', 'secondary small danger', 'Supprimer le code');
-    del.onclick = async () => { if (!await askCurrentPin(pr, msg)) return; patchProfile(pr.id, { pin: '' }); setUnlocked(''); renderAccount(); };
+    del.onclick = async () => { if (!await askCurrentPin(pr, msg, cur)) return; patchProfile(pr.id, { pin: '' }); if (self) setUnlocked(''); renderAccount(); };
     card.append(del);
   }
   card.append(msg);
   return card;
 }
-async function askCurrentPin(pr, msgEl) {
-  if (!pr.pin) return true;
-  const v = $('curPin')?.value || '';
+async function askCurrentPin(pr, msgEl, curEl) {
+  if (!pr.pin || pr.id !== activeId()) return true; // un compte à accès complet peut réinitialiser les autres comptes
+  const v = curEl?.value || '';
   if (!/^\d{4}$/.test(v) || await pinHash(pr.id, v) !== pr.pin) { msgEl.textContent = 'Saisissez le code actuel (4 chiffres) pour modifier ces réglages.'; return false; }
   msgEl.textContent = ''; return true;
 }
