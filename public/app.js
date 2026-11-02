@@ -426,12 +426,12 @@ const readResaCache = () => { try { return JSON.parse(store.get('resaCache') || 
 
 // ---------- mes réservations ----------
 function resaCard(r) {
-  const li = el('li', 'card ' + (r.available ? 'soon' : ''));
+  const li = el('li', 'card ' + (r.available ? '' : 'soon')); // vert = disponible, orange = pas encore
   const head = el('div', 'card-head');
   const t = el('div', 'card-title');
   t.append(el('h3', '', [r.title, r.volume && `(${r.volume})`, r.issueCaption].filter(Boolean).join(' ')));
   if (r.author) t.append(el('p', '', r.author));
-  t.append(el('span', 'due', r.available ? '✓ Disponible : à retirer' : (r.rank ? `N° ${r.rank} dans la file` : r.status || 'En attente') + (r.nextReturn ? ` · retour prévu le ${shortDate(r.nextReturn)}` : '')));
+  t.append(el('span', 'due', r.available ? '✓ Disponible : à retirer' : (r.rank ? `N° ${r.rank} dans la file` : r.status || 'En attente')));
   head.append(cover(r), t);
   li.append(head);
   const main = rows([
