@@ -5,7 +5,7 @@ const $ = (id) => document.getElementById(id);
 const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
 // Plusieurs comptes sur le même appareil : chaque compte a ses propres identifiants et ses propres copies de données.
 // Les clés « par compte » sont rangées sous p:<id>:<clé> ; 'profiles' liste les comptes et 'active' donne le compte courant.
-const PER = new Set(['svcPins', 'svcCache', 'user', 'pass', 'cache', 'resaCache', 'msgCache', 'seenMsgs', 'pickup', 'lastTrace']);
+const PER = new Set(['svcPins', 'svcCache', 'user', 'pass', 'cache', 'resaCache', 'msgCache', 'seenMsgs', 'pickup', 'lastTrace', 'agendaList']);
 const raw = {
   get: (k) => { try { return localStorage.getItem(k) || ''; } catch { return ''; } },
   set: (k, v) => { try { localStorage.setItem(k, v); } catch {} },
@@ -908,7 +908,7 @@ function addFavButton(li, item) {
 }
 
 // ---------- mon espace ----------
-const ESPACE = { profile: 'Mon profil', favoris: 'Mes favoris', loanhistory: 'Historique des prêts', messages: 'Messages', fines: 'Amendes', bibliotheques: 'Bibliothèques', nouveautes: 'Nouveautés', agenda: 'Agenda des bibliothèques', aujourdhui: 'À emprunter aujourd’hui', recherches: 'Mes recherches' };
+const ESPACE = { profile: 'Mon profil', favoris: 'Mes favoris', loanhistory: 'Historique des prêts', messages: 'Messages', fines: 'Amendes', bibliotheques: 'Bibliothèques', nouveautes: 'Nouveautés', agenda: 'Agenda des bibliothèques', mesevenements: 'Mes événements', aujourdhui: 'À emprunter aujourd’hui', recherches: 'Mes recherches' };
 const MENU = [
   ['profile', '👤', 'Mon profil', 'Coordonnées et abonnement'],
   ['favoris', '♡', 'Mes favoris', 'Vos listes de documents'],
@@ -917,6 +917,7 @@ const MENU = [
   ['fines', '💶', 'Amendes', 'Montants éventuels à régler'],
   ['aujourdhui', '🎯', 'À emprunter aujourd’hui', 'Livres de vos listes disponibles, bibliothèque ouverte'],
   ['agenda', '📅', 'Agenda', 'Événements à venir dans les bibliothèques'],
+  ['mesevenements', '⭐', 'Mes événements', 'Ceux auxquels vous voulez participer'],
   ['nouveautes', '✨', 'Nouveautés', 'Derniers arrivages par bibliothèque'],
   ['recherches', '🔎', 'Mes recherches', 'Recherches sauvegardées'],
   ['bibliotheques', '🏛️', 'Bibliothèques', 'Infos du réseau, itinéraires, horaires'],
@@ -1330,6 +1331,63 @@ function icsDownload(ev, date, start, end) {
   document.body.append(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 500);
 }
 
+
+// ---------- Mes événements (liste personnelle, stockée sur l'appareil) ----------
+const parisNow = () => {
+  const n = new Date();
+  return { day: n.toLocaleDateString('sv-SE', { timeZone: 'Europe/Paris' }), time: n.toLocaleTimeString('fr-FR', { timeZone: 'Europe/Paris', hour: '2-digit', minute: '2-digit' }) };
+};
+// Un événement est fini quand sa date est passée, ou, le jour même, quand son heure de fin est passée (par défaut : début + 2 h).
+const agFinished = (x, now = parisNow()) => {
+  if (x.date < now.day) return true;
+  if (x.date > now.day) return false;
+  let end = x.end;
+  if (!/^\d{1,2}:\d{2}$/.test(end || '')) { const m = /^(\d{1,2}):(\d{2})$/.exec(x.hour || ''); end = m ? `${String(Math.min(23, Number(m[1]) + 2)).padStart(2, '0')}:${m[2]}` : '23:59'; }
+  return now.time > end.padStart(5, '0');
+};
+const agKey = (x) => `${x.id}|${x.date}`;
+function agList() {
+  let all = []; try { all = JSON.parse(store.get('agendaList') || '[]'); } catch { all = []; }
+  const now = parisNow(); const live = all.filter((x) => x && x.id && /^\d{4}-\d{2}-\d{2}$/.test(x.date || '') && !agFinished(x, now));
+  if (live.length !== all.length) store.set('agendaList', JSON.stringify(live));
+  return live.sort((a, b) => a.date.localeCompare(b.date) || (a.hour || '').localeCompare(b.hour || ''));
+}
+const agHas = (id, date) => agList().some((x) => agKey(x) === `${id}|${date}`);
+function agToggle(e, date) {
+  const list = agList(); const k = `${e.id}|${date}`;
+  if (list.some((x) => agKey(x) === k)) { store.set('agendaList', JSON.stringify(list.filter((x) => agKey(x) !== k))); return false; }
+  list.push({ id: e.id, date, title: e.title, library: e.library || '', hour: e.hour || '', end: e.endHour || e.end || '', kind: e.kind || '', audience: e.audience || '', image: e.image || '' });
+  store.set('agendaList', JSON.stringify(list)); return true;
+}
+function starBtn(e, date, onChange) {
+  const b = el('button', 'ag-star'); const paint = () => { const on = agHas(e.id, date); b.textContent = on ? '★' : '☆'; b.classList.toggle('on', on); b.title = b.ariaLabel = on ? 'Retirer de ma liste' : 'Ajouter à ma liste'; };
+  paint(); b.onclick = (ev) => { ev.preventDefault(); ev.stopPropagation(); agToggle(e, date); paint(); onChange?.(); }; return b;
+}
+
+function showMyEvents(body, status) {
+  const today = parisNow().day;
+  const draw = () => {
+    body.replaceChildren();
+    const list = agList();
+    const go = el('button', 'secondary', '📅 Parcourir l’agenda'); go.onclick = () => { location.hash = '#espace/agenda'; }; body.append(go);
+    if (!list.length) { body.append(emptyState('⭐', 'Aucun événement dans votre liste', 'Dans l’agenda, touchez l’étoile d’un événement pour l’ajouter. Il disparaît de la liste quand il est terminé.')); status.textContent = ''; return; }
+    status.textContent = `${list.length} événement${list.length > 1 ? 's' : ''} à venir`;
+    let cur = '';
+    for (const x of list) {
+      if (x.date !== cur) { cur = x.date; body.append(el('h3', 'ag-day', dayLabel(cur, today))); }
+      const li = el('div', 'card ag-card');
+      if (x.image) { const im = el('img', 'ag-thumb'); im.alt = ''; im.loading = 'lazy'; im.referrerPolicy = 'no-referrer'; im.src = x.image; im.onerror = () => im.remove(); li.append(im); }
+      const t = el('div', 'ag-body');
+      const h = el('h3'); const a = el('a', 'doc-link', x.title); a.href = '#espace'; a.onclick = (ev) => { ev.preventDefault(); showAgendaEvent(body, status, x, draw, today); }; h.append(a);
+      t.append(h, el('p', 'ag-meta', [x.hour && (x.end ? `${x.hour}–${x.end}` : x.hour), x.library].filter(Boolean).join(' · ')));
+      const ka = [x.kind, x.audience].filter(Boolean).join(' · '); if (ka) t.append(el('p', 'ag-ka', ka));
+      const rm = el('button', 'ag-rm', 'Retirer de ma liste'); rm.onclick = () => { agToggle(x, x.date); draw(); }; t.append(rm);
+      li.append(t); body.append(li);
+    }
+  };
+  draw();
+}
+
 async function showAgendaEvent(body, status, item, back, today) {
   body.replaceChildren(); status.textContent = 'Chargement de l’événement…';
   const b = el('button', 'secondary', '← Retour à l’agenda'); b.onclick = back; body.append(b);
@@ -1345,7 +1403,7 @@ async function showAgendaEvent(body, status, item, back, today) {
     const add = (k, v) => { if (!v) return null; const dt = el('dt', '', k); const dd = el('dd'); if (typeof v === 'string') dd.textContent = v; else dd.append(v); rowsEl.append(dt, dd); return dd; };
     const up = (ev.dates || []).filter((d) => d.date >= today);
     const dl = el('div');
-    for (const d of up.slice(0, 8)) dl.append(el('div', '', `${dayLabel(d.date, today)}${d.start ? ' · ' + d.start + (d.end ? '–' + d.end : '') : ''}`));
+    for (const d of up.slice(0, 8)) { const row = el('div', 'ag-dateRow'); row.append(el('span', '', `${dayLabel(d.date, today)}${d.start ? ' · ' + d.start + (d.end ? '–' + d.end : '') : ''}`), starBtn({ ...ev, id: item.id, hour: d.start || ev.hour, endHour: d.end || ev.endHour, image: ev.image || item.image }, d.date)); dl.append(row); }
     if (up.length > 8) dl.append(el('div', 'muted', `… et ${up.length - 8} autre${up.length - 8 > 1 ? 's' : ''} date${up.length - 8 > 1 ? 's' : ''}`));
     add(up.length > 1 ? 'Dates' : 'Quand', up.length ? dl : (ev.when ? ev.when + (ev.hour ? ' · ' + ev.hour : '') : ''));
     const where = el('div'); if (ev.library) where.append(el('div', '', ev.library + (ev.espace ? ' · ' + ev.espace : '')));
@@ -1379,6 +1437,7 @@ async function showAgenda(body, status) {
     const PERIODS = [['all', 'Tout'], ['today', 'Aujourd’hui'], ['tomorrow', 'Demain'], ['weekend', 'Ce week-end'], ['week', '7 jours'], ['month', '30 jours']];
     for (const [k, l] of PERIODS) { const c = el('button', 'fchip' + (F.period === k ? ' on' : ''), l); c.onclick = () => { F.period = k; F.day = ''; F.days = 14; draw(); }; r1.append(c); }
     const fld = (label, ctl) => { const w = el('label', 'ag-fld'); w.append(el('span', '', label), ctl); return w; };
+    const mine = el('button', 'fchip', `⭐ Ma liste (${agList().length})`); mine.id = 'agMine'; mine.onclick = () => { location.hash = '#espace/mesevenements'; }; r1.append(mine);
     const di = el('input', 'fsel'); di.type = 'date'; di.min = today; di.value = F.day;
     di.onchange = () => { F.day = di.value; F.period = di.value ? 'day' : 'all'; F.days = 14; draw(); };
     const sel = (label, value, opts, fn) => { const x = el('select', 'fsel'); x.append(new Option(label, '')); for (const o of opts) x.append(new Option(o, o)); x.value = value; x.onchange = () => fn(x.value); return x; };
@@ -1414,7 +1473,7 @@ async function showAgenda(body, status) {
         const ka = [e.kind, e.audience].filter(Boolean).join(' · '); if (ka) t.append(el('p', 'ag-ka', ka));
         if (e.dates.length > REG) t.append(el('p', 'ag-tag', 'Rendez-vous régulier'));
         else if (more) t.append(el('p', 'ag-tag', `+ ${more} autre${more > 1 ? 's' : ''} date${more > 1 ? 's' : ''}`));
-        li.append(t); ul.append(li);
+        li.append(t, starBtn(e, d, () => { const c = document.getElementById('agMine'); if (c) c.textContent = `⭐ Ma liste (${agList().length})`; })); ul.append(li);
       }
       list.append(ul);
     }
@@ -1505,6 +1564,7 @@ async function openEspace(kind) {
   if (espaceKind === 'bibliotheques') return showLibraries(body, status);
   if (espaceKind === 'nouveautes') return showNouveautes(body, status);
   if (espaceKind === 'agenda') return showAgenda(body, status);
+  if (espaceKind === 'mesevenements') return showMyEvents(body, status);
   if (espaceKind === 'aujourdhui') return showAujourdhui(body, status);
   if (espaceKind === 'recherches') return showSavedSearches(body, status);
   status.textContent = 'Chargement…';
