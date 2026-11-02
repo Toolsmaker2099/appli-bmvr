@@ -280,3 +280,7 @@ body.is-locked > #lock{visibility:visible}
 .pin-row{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0}
 .pin-in{width:9.5em;padding:9px;border:1px solid var(--line,#ccc);border-radius:10px;font:inherit;background:var(--card,#fff)}
 .chip-lock{margin-left:4px}
+
+.doc-link{color:inherit;text-decoration:underline;text-decoration-color:color-mix(in srgb,currentColor 30%,transparent);text-underline-offset:3px}
+.resa-tag{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:8px 0;padding:8px 10px;border-radius:12px;font-size:.9rem;font-weight:600;background:color-mix(in srgb,var(--warn) 14%,transparent);color:var(--warn)}
+.resa-tag.ready{background:color-mix(in srgb,var(--ok) 14%,transparent);color:var(--ok)}

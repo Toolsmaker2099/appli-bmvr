@@ -322,6 +322,7 @@ function card(l) {
     li.append(det);
   }
   addFavButton(li, l);
+  watchResa(li, l.coverId);
   return li;
 }
 
@@ -432,7 +433,8 @@ function resaCard(r) {
   const li = el('li', 'card ' + (r.available ? '' : 'soon')); // vert = disponible, orange = pas encore
   const head = el('div', 'card-head');
   const t = el('div', 'card-title');
-  t.append(el('h3', '', [r.title, r.volume && `(${r.volume})`, r.issueCaption].filter(Boolean).join(' ')));
+  const h3 = el('h3'); const tl = el('a', 'doc-link', [r.title, r.volume && `(${r.volume})`, r.issueCaption].filter(Boolean).join(' ')); tl.href = '#chercher'; tl.title = 'Voir la fiche du document';
+  tl.onclick = (ev) => { ev.preventDefault(); openDocument(r); }; h3.append(tl); t.append(h3);
   if (r.author) t.append(el('p', '', r.author));
   t.append(el('span', 'due', r.available ? '✓ Disponible : à retirer' : (r.rank ? `N° ${r.rank} dans la file` : r.status || 'En attente')));
   head.append(cover(r), t);
@@ -471,6 +473,7 @@ function renderResa(data, note = '') {
   list.replaceChildren();
   if (!data.reservations.length) { list.append(emptyState('🔖', 'Aucune réservation', 'Cherchez un document dans l’onglet Chercher pour le réserver.')); }
   for (const r of data.reservations) list.append(resaCard(r));
+  loadResaIndex(); decorateAll();
   $('resaStatus').textContent = `${data.reservations.length} réservation${data.reservations.length > 1 ? 's' : ''}${note}`;
 }
 
@@ -540,7 +543,7 @@ function reserveSheet(item, li) {
       try {
         const r = await call('/reserve', { id: item.id, volume: volSel?.value, branch: brSel.value, copyNo: info.copyNo });
         if (!r.done) throw new Error('La bibliothèque a refusé la réservation.');
-        store.set('pickup', brSel.value); store.del('resaCache');
+        store.set('pickup', brSel.value); store.del('resaCache'); refreshResaIndex(true);
         sheet.replaceChildren(el('p', 'hint ok', `✓ Réservé. Retrait à ${name}. Retrouvez-la dans l’onglet Réservations.`));
       } catch (e) { out.textContent = e.message; out.className = 'hint msg err'; ok.disabled = false; ok.textContent = 'Confirmer la réservation'; }
     };
@@ -648,11 +651,59 @@ function searchCard(item) {
   fav.onclick = () => { fav.remove(); favSheet(item, li); };
   row.append(fav); li.append(row);
   if (item.reservable !== false && !item.digital && !item.holdings?.length) {
-    const btn = el('button', 'primary small', 'Réserver');
+    const btn = el('button', 'primary small reserve-btn', 'Réserver');
     btn.onclick = () => { btn.remove(); reserveSheet(item, li); };
     row.append(btn);
   }
+  watchResa(li, item.id);
   return li;
+}
+
+// ---------- « déjà réservé » sur toutes les cartes de documents ----------
+const RESA = { map: new Map(), at: 0, busy: false };
+function loadResaIndex() { const c = readResaCache(); RESA.map = new Map((c?.reservations || []).filter((r) => r.coverId).map((r) => [r.coverId, r])); }
+async function refreshResaIndex(force) {
+  if (!hasCreds() || RESA.busy || (!force && Date.now() - RESA.at < 120000)) return;
+  RESA.busy = true;
+  try { const d = await call('/reservations'); store.set('resaCache', JSON.stringify(d)); RESA.at = Date.now(); loadResaIndex(); decorateAll(); } catch { /* facultatif */ }
+  finally { RESA.busy = false; }
+}
+function decorate(li, docId) {
+  li.querySelector(':scope > .resa-tag')?.remove();
+  const r = docId && RESA.map.get(docId);
+  li.querySelectorAll('.reserve-btn').forEach((b) => { b.hidden = !!r; });
+  if (!r) return;
+  const tag = el('div', 'resa-tag' + (r.available ? ' ready' : ''));
+  tag.append(el('span', '', r.available ? '🔖 Vous avez réservé ce document : prêt à retirer' : `🔖 Vous avez déjà réservé ce document${r.rank ? ` · n° ${r.rank} dans la file` : ''}`));
+  const go = el('a', 'secondary small linkbtn', 'Voir mes réservations'); go.href = '#resa'; tag.append(go);
+  const head = li.querySelector('.card-head'); if (head) head.after(tag); else li.prepend(tag);
+}
+function decorateAll() { document.querySelectorAll('[data-doc]').forEach((li) => decorate(li, li.dataset.doc)); }
+function watchResa(li, docId) {
+  if (!docId || !hasCreds()) return;
+  if (!RESA.at && !RESA.map.size) loadResaIndex();
+  li.dataset.doc = docId; decorate(li, docId); refreshResaIndex(false);
+}
+// Ouvre la fiche d'un document dans l'onglet Chercher, telle qu'un résultat de recherche.
+async function resolveDocId(item) {
+  if (item.coverId) return item.coverId;
+  const norm = (x) => String(x || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
+  const { results } = await call('/search', { query: [item.title, item.author].filter(Boolean).join(' ').slice(0, 120) });
+  const want = norm(item.title);
+  return (results.find((r) => norm(r.title) === want) || results.find((r) => norm(r.title).startsWith(want.slice(0, 20))) || results[0])?.id || '';
+}
+async function openDocument(item) {
+  location.hash = '#chercher';
+  Object.assign(SS, { items: [], more: false, q: '', qid: '', single: true });
+  $('q').value = ''; $('searchList').replaceChildren(); $('searchTools').hidden = true; $('moreBtn').hidden = true;
+  $('searchStatus').textContent = 'Ouverture du document…';
+  try {
+    const id = await resolveDocId(item); if (!id) throw new Error('Document introuvable dans le catalogue.');
+    const { results } = await call('/documents', { ids: [id] });
+    if (!results.length) throw new Error('Document introuvable dans le catalogue.');
+    SS.items = results; renderSearch();
+    $('searchStatus').textContent = 'Document ouvert depuis vos réservations';
+  } catch (e) { $('searchStatus').textContent = 'Impossible d’ouvrir le document : ' + e.message; }
 }
 
 // ---------- même auteur, même série ----------
@@ -689,8 +740,8 @@ function applySearch() {
 }
 function renderSearch() {
   const tools = $('searchTools'), list = $('searchList');
-  tools.hidden = !SS.items.length; tools.replaceChildren();
-  if (SS.items.length) {
+  tools.hidden = !SS.items.length || !!SS.single; tools.replaceChildren();
+  if (SS.items.length && !SS.single) {
     const chip = (txt, on, fn) => { const b = el('button', 'fchip' + (on ? ' on' : ''), txt); b.onclick = fn; return b; };
     const row1 = el('div', 'frow');
     row1.append(chip('✓ Disponible', SS.avail, () => { SS.avail = !SS.avail; renderSearch(); }), chip('🔖 Réservable', SS.resa, () => { SS.resa = !SS.resa; renderSearch(); }));
@@ -720,7 +771,7 @@ function renderSearch() {
 async function runSearch(more) {
   if (SS.busy) return;
   SS.busy = true;
-  if (!more) { SS.q = $('q').value.trim(); SS.qid = crypto.randomUUID?.() || ''; SS.page = 1; SS.items = []; SS.avail = SS.resa = false; SS.type = SS.branch = ''; $('searchList').replaceChildren(); $('searchTools').hidden = true; }
+  if (!more) { SS.single = false; SS.q = $('q').value.trim(); SS.qid = crypto.randomUUID?.() || ''; SS.page = 1; SS.items = []; SS.avail = SS.resa = false; SS.type = SS.branch = ''; $('searchList').replaceChildren(); $('searchTools').hidden = true; }
   else SS.page += 1;
   $('searchStatus').textContent = more ? 'Chargement…' : 'Recherche…'; $('moreBtn').disabled = true;
   try {
@@ -873,6 +924,7 @@ function plainCard(it) {
     head.append(t); li.append(head);
   }
   const r = rows(it.fields); if (r) li.append(r);
+  watchResa(li, it.coverId);
   return li;
 }
 
