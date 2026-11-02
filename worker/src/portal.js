@@ -415,9 +415,10 @@ export function parseReservations(list) {
       expiryDate: toISODate(it.expiryDate, f),
       pickupDeadline: toISODate(it.dateHoldForPickup, f),
       rank: it.rank != null && it.rank !== '' ? Number(it.rank) || 0 : null,
-      status: readable(text(typeof status === 'object' ? status?.desc : status)),
+      status: readable(text(typeof status === 'object' ? status?.desc : status)) || (/(UN|NOT_?|NON_?)AVAIL/i.test(text(it.statusCode)) ? 'Réservation non disponible' : ''),
       statusCode: text(it.statusCode),
-      available: /AVAILABLE/i.test(text(it.statusCode)),
+      // « UNAVAILABLE » contient « AVAILABLE » : on exclut les négations, sans quoi une réservation non disponible s'affiche prête à retirer.
+      available: /AVAIL/i.test(text(it.statusCode)) && !/(UN|NOT_?|NON_?)AVAIL/i.test(text(it.statusCode)) && !/non[- ]?disponible/i.test(text(typeof status === 'object' ? status?.desc : status)),
       ilsType: text(it.ilsType ?? raw?.ilsType),
       seqNo: seq,
       omnidexId: text(it.omnidexId),
