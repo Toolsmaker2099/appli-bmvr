@@ -1213,38 +1213,42 @@ export function parseAgenda(res, from) {
   return out;
 }
 
-export async function fetchAgenda(fetchFn = fetch, now = Date.now()) {
+// Type (« Atelier »…), public et pôle ne figurent pas dans les résultats de recherche : on les lit dans la fiche de chaque événement,
+// quelques dizaines par appel (limite de sous-requêtes), et on les garde en mémoire ; le client rappelle tant qu'il en manque.
+const evMeta = new Map();
+const META_TTL = 12 * 3600 * 1000;
+export async function fetchAgenda(fetchFn = fetch, now = Date.now(), budget = 36) {
   const from = parisToday();
-  if (agendaCache.data && agendaCache.day === from && now - agendaCache.at < 10 * 60 * 1000) return agendaCache.data;
   const c = makeClient(fetchFn);
-  await c.init();
-  const search = (fq, pageNo = 1, includeFacets = false) => c.post(null, 'search', { query: ['*'], fq, queryid: 'NONE', sf: '*', includeFacets, pageNo, pageSize: 100, locale: 'fr' });
-  const first1 = failIfError(await search(AGENDA_FQ(from), 1, true), 'Agenda');
-  let events = parseAgenda(first1, from);
-  for (let p = 2; p <= Math.min(first1.maxPageNo ?? 1, 4); p++) events = events.concat(parseAgenda(failIfError(await search(AGENDA_FQ(from), p), 'Agenda'), from));
-  // Publics / services (« Jeunesse », « Adultes »…) : le portail les expose comme une facette d'identifiants.
-  const deps = (first1.facets ?? []).find((f) => f.code === 'departmentRelation_iid')?.items ?? [];
-  const byId = new Map(events.map((e) => [e.id, e]));
-  const departments = [];
-  for (const d of deps.slice(0, 10)) {
-    const iid = String(d.value ?? '');
-    if (!/^[0-9a-f-]{36}$/.test(iid)) continue;
-    const r = await search([...AGENDA_FQ(from), `departmentRelation_iid:"${iid}"`]).catch(() => null);
-    const ids = (r?.resultSet ?? []).map((x) => first(x.id)).filter((x) => byId.has(x));
-    if (!ids.length) continue;
-    let name = '';
-    try {
-      const n = await c.get(null, 'notice', { id: ids[0], locale: 'fr', aspect: 'Meta' });
-      name = String((n.fields ?? []).find((f) => f.name === 'departmentRelation')?.values?.[0]?.qa?.Answer ?? '');
-    } catch { /* nom inconnu */ }
-    if (!name) continue;
-    departments.push({ name, count: ids.length });
-    for (const id of ids) byId.get(id).department = name;
+  let inited = false;
+  if (!(agendaCache.data && agendaCache.day === from && now - agendaCache.at < 10 * 60 * 1000)) {
+    await c.init(); inited = true;
+    const search = (pageNo) => c.post(null, 'search', { query: ['*'], fq: AGENDA_FQ(from), queryid: 'NONE', sf: '*', includeFacets: false, pageNo, pageSize: 100, locale: 'fr' });
+    const r1 = failIfError(await search(1), 'Agenda');
+    let events = parseAgenda(r1, from);
+    for (let p = 2; p <= Math.min(r1.maxPageNo ?? 1, 4); p++) events = events.concat(parseAgenda(failIfError(await search(p), 'Agenda'), from));
+    const libraries = [...new Set(events.map((e) => e.library).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'fr'));
+    agendaCache = { at: now, day: from, data: { events, libraries, from }, ready: false };
   }
-  const libraries = [...new Map(events.filter((e) => e.library).map((e) => [e.library, 0])).keys()].sort((a, b) => a.localeCompare(b, 'fr'));
-  const data = { events, libraries, departments, total: events.length, from, fetchedAt: new Date().toISOString() };
-  agendaCache = { at: now, day: from, data };
-  return data;
+  const base = agendaCache.data;
+  const missing = base.events.filter((e) => !(evMeta.get(e.id)?.at > now - META_TTL)).sort((a, b) => a.dates[0].localeCompare(b.dates[0]));
+  const todo = missing.slice(0, budget);
+  if (todo.length) {
+    if (!inited) await c.init();
+    for (let i = 0; i < todo.length; i += 12) {
+      await Promise.all(todo.slice(i, i + 12).map(async (e) => {
+        try {
+          const n = await c.get(null, 'notice', { id: e.id, locale: 'fr', aspect: 'Meta' });
+          const f = {}; for (const x of n.fields ?? []) f[x.name] = x.values?.[0]?.qa?.Answer;
+          evMeta.set(e.id, { at: now, kind: String(f.manif ?? '').trim(), audience: String(f.type_public ?? '').trim(), department: String(f.departmentRelation ?? '').trim() });
+        } catch { /* sera retenté au prochain appel */ }
+      }));
+    }
+  }
+  const events = base.events.map((e) => { const m = evMeta.get(e.id); return m ? { ...e, kind: m.kind, audience: m.audience, department: m.department } : e; });
+  const known = events.filter((e) => evMeta.has(e.id));
+  const uniq = (k) => [...new Set(known.map((e) => e[k]).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'fr'));
+  return { events, libraries: base.libraries, kinds: uniq('kind'), audiences: uniq('audience'), departments: uniq('department'), pending: events.length - known.length, total: events.length, from, fetchedAt: new Date().toISOString() };
 }
 
 const decodeHtml = (s) => s.replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#0?39;|&apos;/g, "'").replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)));

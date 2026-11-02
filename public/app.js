@@ -1370,7 +1370,7 @@ async function showAgenda(body, status) {
   let data;
   try { data = await call('/agenda'); } catch (e) { status.textContent = 'Impossible de charger l’agenda : ' + e.message; return; }
   const today = data.from;
-  const F = { period: 'all', day: '', lib: '', dep: '', q: '', regular: false, days: 14 };
+  const F = { period: 'all', day: '', lib: '', kind: '', aud: '', dep: '', q: '', regular: false, days: 14, detail: false };
   const REG = 10; // au-delà de 10 dates à venir : « rendez-vous régulier »
   const draw = () => {
     body.replaceChildren();
@@ -1382,18 +1382,17 @@ async function showAgenda(body, status) {
     const di = el('input', 'fsel'); di.type = 'date'; di.min = today; di.value = F.day;
     di.onchange = () => { F.day = di.value; F.period = di.value ? 'day' : 'all'; F.days = 14; draw(); };
     const sel = (label, value, opts, fn) => { const x = el('select', 'fsel'); x.append(new Option(label, '')); for (const o of opts) x.append(new Option(o, o)); x.value = value; x.onchange = () => fn(x.value); return x; };
-    const deps = [...data.departments.map((d) => d.name), 'Autres'];
     const q = el('input', 'fsel'); q.type = 'search'; q.placeholder = 'Titre, lieu, mot-clé…'; q.value = F.q;
     q.onkeydown = (e) => { if (e.key === 'Enter') { F.q = q.value.trim(); F.days = 14; draw(); } };
     q.onchange = () => { F.q = q.value.trim(); F.days = 14; draw(); };
     r2.className = 'ag-form';
-    r2.append(fld('📅 Choisir un jour précis', di), fld('🏛️ Bibliothèque', sel('Toutes les bibliothèques', F.lib, data.libraries, (v) => { F.lib = v; F.days = 14; draw(); })), fld('👥 Public ou pôle', sel('Tous les publics et pôles', F.dep, deps, (v) => { F.dep = v; F.days = 14; draw(); })), fld('🔎 Recherche', q));
+    r2.append(fld('📅 Choisir un jour précis', di), fld('🏛️ Bibliothèque', sel('Toutes les bibliothèques', F.lib, data.libraries, (v) => { F.lib = v; F.days = 14; draw(); })), fld('🎭 Type d’événement', sel('Tous les types', F.kind, data.kinds || [], (v) => { F.kind = v; F.days = 14; draw(); })), fld('👥 Public', sel('Tous les publics', F.aud, data.audiences || [], (v) => { F.aud = v; F.days = 14; draw(); })), fld('🗂️ Pôle', sel('Tous les pôles', F.dep, data.departments || [], (v) => { F.dep = v; F.days = 14; draw(); })), fld('🔎 Recherche', q));
     if (F.day) { const x = el('button', 'fchip', `Jour choisi : ${dayLabel(F.day, today)} ✕`); x.onclick = () => { F.day = ''; F.period = 'all'; draw(); }; r1.append(x); }
     bar.append(r1, r2); body.append(bar);
 
     const [from, to] = F.period === 'today' ? [today, today] : F.period === 'tomorrow' ? [isoAdd(today, 1), isoAdd(today, 1)] : F.period === 'weekend' ? [wd === 0 ? today : sat, wd === 0 ? today : isoAdd(sat, 1)] : F.period === 'week' ? [today, isoAdd(today, 6)] : F.period === 'month' ? [today, isoAdd(today, 29)] : F.period === 'day' && F.day ? [F.day, F.day] : [today, '9999-12-31'];
     const nq = agNorm(F.q);
-    const ok = (e) => (!F.lib || e.library === F.lib) && (!F.dep || (e.department || 'Autres') === F.dep) && (!nq || agNorm(`${e.title} ${e.library} ${e.espace} ${e.department || ''}`).includes(nq));
+    const ok = (e) => (!F.lib || e.library === F.lib) && (!F.kind || e.kind === F.kind) && (!F.aud || e.audience === F.aud) && (!F.dep || e.department === F.dep) && (!nq || agNorm(`${e.title} ${e.library} ${e.espace} ${e.kind || ''} ${e.audience || ''} ${e.department || ''}`).includes(nq));
     const evs = data.events.filter(ok);
     const regular = evs.filter((e) => e.dates.length > REG);
     const occ = [];
@@ -1401,7 +1400,7 @@ async function showAgenda(body, status) {
     occ.sort((a, b) => a.d.localeCompare(b.d) || (a.e.hour || '99').localeCompare(b.e.hour || '99') || a.e.title.localeCompare(b.e.title, 'fr'));
     const days = [...new Set(occ.map((o) => o.d))];
     const list = el('div', 'ag-list'); body.append(list);
-    const open = (e) => showAgendaEvent(body, status, e, () => { status.textContent = ''; draw(); }, today);
+    const open = (e) => { F.detail = true; showAgendaEvent(body, status, e, () => { F.detail = false; status.textContent = ''; draw(); }, today); };
     for (const d of days.slice(0, F.days)) {
       list.append(el('h3', 'ag-day', dayLabel(d, today)));
       const ul = el('ul', 'cards');
@@ -1412,6 +1411,7 @@ async function showAgenda(body, status) {
         const h = el('h3'); const a = el('a', 'doc-link', e.title); a.href = '#espace'; a.onclick = (ev) => { ev.preventDefault(); open(e); }; h.append(a);
         t.append(h, el('p', 'ag-meta', [e.hour, e.library, e.espace].filter(Boolean).join(' · ')));
         const more = e.dates.filter((x) => x > d).length;
+        const ka = [e.kind, e.audience].filter(Boolean).join(' · '); if (ka) t.append(el('p', 'ag-ka', ka));
         if (e.dates.length > REG) t.append(el('p', 'ag-tag', 'Rendez-vous régulier'));
         else if (more) t.append(el('p', 'ag-tag', `+ ${more} autre${more > 1 ? 's' : ''} date${more > 1 ? 's' : ''}`));
         li.append(t); ul.append(li);
@@ -1422,9 +1422,15 @@ async function showAgenda(body, status) {
     if (regular.length && !F.regular) { const m = el('button', 'secondary', `Afficher les rendez-vous réguliers (${regular.length})`); m.onclick = () => { F.regular = true; draw(); }; body.append(m); }
     else if (F.regular) { const m = el('button', 'secondary', 'Masquer les rendez-vous réguliers'); m.onclick = () => { F.regular = false; draw(); }; body.append(m); }
     const n = new Set(occ.map((o) => o.e.id)).size;
-    status.textContent = occ.length ? `${n} événement${n > 1 ? 's' : ''} · ${days.length} jour${days.length > 1 ? 's' : ''}` : 'Aucun événement avec ces filtres.';
+    status.textContent = (occ.length ? `${n} événement${n > 1 ? 's' : ''} · ${days.length} jour${days.length > 1 ? 's' : ''}` : 'Aucun événement avec ces filtres.') + (data.pending ? ` · types et publics en cours de chargement (${data.total - data.pending}/${data.total})` : '');
   };
   draw();
+  // Types, publics et pôles arrivent par paquets : on rafraîchit sans déranger (pas pendant la lecture d'une fiche).
+  for (let i = 0; data.pending && i < 8 && body.isConnected; i++) {
+    try { data = await call('/agenda'); } catch { break; }
+    if (!body.isConnected || F.detail) { if (F.detail) { i--; await new Promise((r) => setTimeout(r, 1500)); } continue; }
+    const y = window.scrollY; draw(); window.scrollTo(0, y);
+  }
 }
 
 // Normalisation des noms de bibliothèque (« Bibliothèque de l'Alcazar » ≈ « Alcazar »).
