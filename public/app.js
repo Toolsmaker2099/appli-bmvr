@@ -278,7 +278,7 @@ function card(l) {
 
   const head = el('div', 'card-head');
   const t = el('div', 'card-title');
-  t.append(el('h3', '', [l.title, l.volume && `(${l.volume})`, l.issueCaption].filter(Boolean).join(' ')));
+  t.append(docTitle([l.title, l.volume && `(${l.volume})`, l.issueCaption].filter(Boolean).join(' '), l));
   if (l.author) t.append(el('p', '', l.author));
   t.append(el('span', 'due', `${rel(d)} · ${shortDate(l.dueDate)}`));
   head.append(cover(l), t);
@@ -433,8 +433,7 @@ function resaCard(r) {
   const li = el('li', 'card ' + (r.available ? '' : 'soon')); // vert = disponible, orange = pas encore
   const head = el('div', 'card-head');
   const t = el('div', 'card-title');
-  const h3 = el('h3'); const tl = el('a', 'doc-link', [r.title, r.volume && `(${r.volume})`, r.issueCaption].filter(Boolean).join(' ')); tl.href = '#chercher'; tl.title = 'Voir la fiche du document';
-  tl.onclick = (ev) => { ev.preventDefault(); openDocument(r); }; h3.append(tl); t.append(h3);
+  t.append(docTitle([r.title, r.volume && `(${r.volume})`, r.issueCaption].filter(Boolean).join(' '), r));
   if (r.author) t.append(el('p', '', r.author));
   t.append(el('span', 'due', r.available ? '✓ Disponible : à retirer' : (r.rank ? `N° ${r.rank} dans la file` : r.status || 'En attente')));
   head.append(cover(r), t);
@@ -561,11 +560,11 @@ function noticeFields(entries) {
   for (const [k, v] of entries) if (v) { const d = el('div', 'nf' + (String(v).length > 90 ? ' wide' : '')); d.append(el('small', '', k), el('p', '', v)); g.append(d); }
   return g.children.length ? g : null;
 }
-function searchCard(item) {
+function searchCard(item, inSearch = false) {
   const li = el('li', 'card');
   const head = el('div', 'card-head');
   const t = el('div', 'card-title');
-  t.append(el('h3', '', item.title));
+  t.append(inSearch ? el('h3', '', item.title) : docTitle(item.title, item));
   
   head.append(cover(item), t);
   li.append(head);
@@ -659,6 +658,14 @@ function searchCard(item) {
   return li;
 }
 
+// Titre de document cliquable : ouvre la fiche dans l'onglet Chercher (sauf déjà dans la recherche).
+function docTitle(text, item) {
+  const h3 = el('h3');
+  if (!text || !(item.coverId || item.id || item.title)) { h3.textContent = text || ''; return h3; }
+  const a = el('a', 'doc-link', text); a.href = '#chercher'; a.title = 'Voir la fiche du document';
+  a.onclick = (ev) => { ev.preventDefault(); openDocument(item); };
+  h3.append(a); return h3;
+}
 // ---------- « déjà réservé » sur toutes les cartes de documents ----------
 const RESA = { map: new Map(), at: 0, busy: false };
 function loadResaIndex() { const c = readResaCache(); RESA.map = new Map((c?.reservations || []).filter((r) => r.coverId).map((r) => [r.coverId, r])); }
@@ -687,6 +694,7 @@ function watchResa(li, docId) {
 // Ouvre la fiche d'un document dans l'onglet Chercher, telle qu'un résultat de recherche.
 async function resolveDocId(item) {
   if (item.coverId) return item.coverId;
+  if (/^p::/.test(item.id || '')) return item.id;
   const norm = (x) => String(x || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, ' ').trim();
   const { results } = await call('/search', { query: [item.title, item.author].filter(Boolean).join(' ').slice(0, 120) });
   const want = norm(item.title);
@@ -702,7 +710,7 @@ async function openDocument(item) {
     const { results } = await call('/documents', { ids: [id] });
     if (!results.length) throw new Error('Document introuvable dans le catalogue.');
     SS.items = results; renderSearch();
-    $('searchStatus').textContent = 'Document ouvert depuis vos réservations';
+    $('searchStatus').textContent = 'Fiche du document';
   } catch (e) { $('searchStatus').textContent = 'Impossible d’ouvrir le document : ' + e.message; }
 }
 
@@ -762,7 +770,7 @@ function renderSearch() {
     tools.append(row1, row2);
   }
   const shown = applySearch();
-  list.replaceChildren(...shown.map(searchCard));
+  list.replaceChildren(...shown.map((it) => searchCard(it, true)));
   const filtered = shown.length !== SS.items.length;
   $('searchStatus').textContent = !SS.items.length ? (SS.q ? 'Aucun résultat.' : '') : `${shown.length} résultat${shown.length > 1 ? 's' : ''}${filtered ? ` sur ${SS.items.length} chargés` : ''}`;
   $('moreBtn').hidden = !SS.more;
@@ -918,7 +926,7 @@ function plainCard(it) {
   const li = el('li', 'card');
   if (it.title || it.coverId || it.isbn) {
     const head = el('div', 'card-head'); const t = el('div', 'card-title');
-    if (it.title) t.append(el('h3', '', it.title));
+    if (it.title) t.append(docTitle(it.title, it));
     if (it.author) t.append(el('p', '', it.author));
     if (it.coverId || it.isbn) head.append(cover(it));
     head.append(t); li.append(head);
@@ -1277,7 +1285,7 @@ async function showNouveautes(body, status) {
       const d = await call('/nouveautes', { branch: F.branch, type: F.type, avail: F.avail, page: F.page });
       if (d.branches?.length && !facets) { facets = d; paintBar(); }
       const known = new Set(F.items.map((x) => x.id)); const add = d.results.filter((x) => !known.has(x.id));
-      F.items.push(...add); list.append(...add.map(searchCard));
+      F.items.push(...add); list.append(...add.map((it) => searchCard(it)));
       more.hidden = !(d.results.length >= 20 && F.page < 10);
       status.textContent = F.items.length ? `${d.total} nouveauté${d.total > 1 ? 's' : ''} · du plus récent au plus ancien` : 'Aucune nouveauté avec ces filtres.';
     } catch (e) { if (append) F.page -= 1; status.textContent = 'Impossible de charger les nouveautés : ' + e.message; }
