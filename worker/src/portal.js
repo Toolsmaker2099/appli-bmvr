@@ -437,6 +437,16 @@ export async function fetchReservations(creds, fetchFn = fetch, debug = false) {
   }
   if (!res) throw lastErr;
   const reservations = parseReservations(res);
+  // Date de retour prévue : le plus proche retour parmi les exemplaires empruntés du document (comme « Où l'emprunter » en recherche).
+  await Promise.all(reservations.slice(0, 20).map(async (r) => {
+    if (r.available || !r.coverId) return;
+    try {
+      const copies = parseCopies(failIfError(await c.get(token, 'notice', { id: r.coverId, locale: 'fr', aspect: 'Stock' }), 'Exemplaires'));
+      const due = copies.filter((x) => !x.available).map((x) => x.due).filter(Boolean).sort();
+      r.nextReturn = due[0] || '';
+      r.copiesTotal = copies.length;
+    } catch { /* la date de retour est facultative */ }
+  }));
   return debug ? { reservations, shape: shapeOf(res) } : { reservations };
 }
 

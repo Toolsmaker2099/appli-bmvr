@@ -431,12 +431,13 @@ function resaCard(r) {
   const t = el('div', 'card-title');
   t.append(el('h3', '', [r.title, r.volume && `(${r.volume})`, r.issueCaption].filter(Boolean).join(' ')));
   if (r.author) t.append(el('p', '', r.author));
-  t.append(el('span', 'due', r.available ? '✓ Disponible : à retirer' : r.rank ? `Vous êtes n° ${r.rank} dans la file` : r.status || 'En attente'));
+  t.append(el('span', 'due', r.available ? '✓ Disponible : à retirer' : (r.rank ? `N° ${r.rank} dans la file` : r.status || 'En attente') + (r.nextReturn ? ` · retour prévu le ${shortDate(r.nextReturn)}` : '')));
   head.append(cover(r), t);
   li.append(head);
   const main = rows([
     ['État', r.status],
     ['Retrait', r.branch],
+    ['Retour prévu du document', !r.available && r.nextReturn ? longDate(r.nextReturn) : ''],
     ['Réservé le', r.reservedOn && longDate(r.reservedOn)],
     ['À retirer avant le', r.pickupDeadline && longDate(r.pickupDeadline)],
     ['Réservation valable jusqu’au', r.expiryDate && longDate(r.expiryDate)],
