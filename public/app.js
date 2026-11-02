@@ -169,6 +169,8 @@ function renderNextEvent() {
   const list = agList(); if (!list.length) return;
   const today = parisNow().day; const x = list[0];
   box.hidden = false; box.className = 'card reminder next-event';
+  const go = () => { location.hash = '#espace/mesevenements'; };
+  box.onclick = go; box.tabIndex = 0; box.setAttribute('role', 'link'); box.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); } };
   box.append(el('h4', '', '⭐ Prochain événement'));
   const a = el('a', 'rem-ev'); a.href = '#espace/mesevenements';
   a.append(el('strong', '', x.title), el('span', 'rem-d', [dayLabel(x.date, today), x.hour && (x.end ? `${x.hour}–${x.end}` : x.hour), x.library].filter(Boolean).join(' · ')));
