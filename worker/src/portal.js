@@ -661,9 +661,14 @@ export async function makeReservation(creds, { id, volume, branch, copyNo }, fet
   if (copyNo && !/^[^\s"\\<>]{1,60}$/.test(String(copyNo))) throw new Error('Exemplaire invalide');
   const { c, token } = await login(creds, fetchFn);
   const vol = volume || null;
-  await c.get(token, 'reservationVolumes', { id, locale: 'fr' }).catch(() => null);
-  await c.get(token, 'reservationChoices', { id, ...(copyNo ? { serialCopyNo: copyNo } : {}), locale: 'fr' }).catch(() => null);
-  await c.get(token, 'reservationRankWithStatus', { id, volume: vol, branch, ...(copyNo ? { monographicCopyNo: copyNo } : {}) }).catch(() => null);
+  const steps = [];
+  const step = async (name, fn) => { try { const r = await fn(); steps.push(`${name} ok`); return r; } catch (e) { steps.push(`${name} ${String(e.message).replace(/^Portail: \w+ → /, '').slice(0, 50)}`); return null; } };
+  await step('volumes', () => c.get(token, 'reservationVolumes', { id, locale: 'fr' }));
+  const ch = await step('choix', () => c.get(token, 'reservationChoices', { id, ...(copyNo ? { serialCopyNo: copyNo } : {}), locale: 'fr' }));
+  if (ch) steps.push(`lieux=${(ch.branchList ?? []).map((b) => b.branchCode).join(',') || 'aucun'}${ch.userTrapLevel ? ' alerte=' + ch.userTrapLevel : ''}`);
+  const rk = await step('rang', () => c.get(token, 'reservationRankWithStatus', { id, volume: vol, branch, ...(copyNo ? { monographicCopyNo: copyNo } : {}) }));
+  if (rk) steps.push(`statut=${rk.status} rang=${rk.rank ?? '-'}`);
+  steps.push(`lieu=${branch}${copyNo ? ' ex.=' + copyNo : ''}${vol ? ' vol=' + vol : ''}`);
   const errs = [];
   for (const [how, body] of [
     ['exemplaire', { id, volume: vol, branch, ...(copyNo ? { monographicCopyNo: copyNo } : {}), locale: 'fr' }],
@@ -679,7 +684,7 @@ export async function makeReservation(creds, { id, volume, branch, copyNo }, fet
       errs.push(`${how}: ${e.message.replace(/^Portail: makeReservation → /, '').slice(0, 60)}`);
     }
   }
-  throw new Error(`Réservation refusée par le portail (${errs.join(' | ')})`);
+  throw new Error(`Réservation refusée par le portail (${errs.join(' | ')}) · étapes : ${steps.join(', ')}`);
 }
 
 
