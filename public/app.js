@@ -159,6 +159,21 @@ function renderSummary() {
   }
   renderMsgLine();
   renderReminder(data);
+  renderNextEvent();
+}
+// Prochain événement de « Mes événements » (liste locale, aucun appel réseau).
+function renderNextEvent() {
+  const box = $('nextEvent'); if (!box) return;
+  box.replaceChildren(); box.hidden = true;
+  if (!hasCreds()) return;
+  const list = agList(); if (!list.length) return;
+  const today = parisNow().day; const x = list[0];
+  box.hidden = false; box.className = 'card reminder next-event';
+  box.append(el('h4', '', '⭐ Prochain événement'));
+  const a = el('a', 'rem-ev'); a.href = '#espace/mesevenements';
+  a.append(el('strong', '', x.title), el('span', 'rem-d', [dayLabel(x.date, today), x.hour && (x.end ? `${x.hour}–${x.end}` : x.hour), x.library].filter(Boolean).join(' · ')));
+  box.append(a);
+  if (list.length > 1) box.append(el('p', 'muted', `+ ${list.length - 1} autre${list.length > 2 ? 's' : ''} dans votre liste`));
 }
 function renderReminder(data) {
   const box = $('reminder'); if (!box) return;
@@ -908,7 +923,7 @@ function addFavButton(li, item) {
 }
 
 // ---------- mon espace ----------
-const ESPACE = { profile: 'Mon profil', favoris: 'Mes favoris', loanhistory: 'Historique des prêts', messages: 'Messages', fines: 'Amendes', bibliotheques: 'Bibliothèques', nouveautes: 'Nouveautés', agenda: 'Agenda des bibliothèques', mesevenements: 'Mes événements', aujourdhui: 'À emprunter aujourd’hui', recherches: 'Mes recherches' };
+const ESPACE = { profile: 'Mon profil', favoris: 'Mes favoris', loanhistory: 'Historique des prêts', messages: 'Messages', fines: 'Amendes', bibliotheques: 'Bibliothèques', nouveautes: 'Nouveautés', agenda: 'Agenda des bibliothèques', mesevenements: 'Mes événements', agendapasse: 'Événements passés', aujourdhui: 'À emprunter aujourd’hui', recherches: 'Mes recherches' };
 const MENU = [
   ['profile', '👤', 'Mon profil', 'Coordonnées et abonnement'],
   ['favoris', '♡', 'Mes favoris', 'Vos listes de documents'],
@@ -1437,6 +1452,7 @@ async function showAgenda(body, status) {
     const PERIODS = [['all', 'Tout'], ['today', 'Aujourd’hui'], ['tomorrow', 'Demain'], ['weekend', 'Ce week-end'], ['week', '7 jours'], ['month', '30 jours']];
     for (const [k, l] of PERIODS) { const c = el('button', 'fchip' + (F.period === k ? ' on' : ''), l); c.onclick = () => { F.period = k; F.day = ''; F.days = 14; draw(); }; r1.append(c); }
     const fld = (label, ctl) => { const w = el('label', 'ag-fld'); w.append(el('span', '', label), ctl); return w; };
+    const past = el('button', 'fchip', '🕘 Passés'); past.onclick = () => { location.hash = '#espace/agendapasse'; }; r1.append(past);
     const mine = el('button', 'fchip', `⭐ Ma liste (${agList().length})`); mine.id = 'agMine'; mine.onclick = () => { location.hash = '#espace/mesevenements'; }; r1.append(mine);
     const di = el('input', 'fsel'); di.type = 'date'; di.min = today; di.value = F.day;
     di.onchange = () => { F.day = di.value; F.period = di.value ? 'day' : 'all'; F.days = 14; draw(); };
@@ -1490,6 +1506,47 @@ async function showAgenda(body, status) {
     if (!body.isConnected || F.detail) { if (F.detail) { i--; await new Promise((r) => setTimeout(r, 1500)); } continue; }
     const y = window.scrollY; draw(); window.scrollTo(0, y);
   }
+}
+
+// Événements passés, un mois à la fois (le portail n'en garde pas la totalité), du plus récent au plus ancien.
+async function showAgendaPast(body, status) {
+  const F = { month: '', lib: '', q: '', shown: 14 };
+  const cache = {}; const today = parisNow().day;
+  const monthLabel = (m) => `${AG_MONTHS[Number(m.slice(5)) - 1][0].toUpperCase()}${AG_MONTHS[Number(m.slice(5)) - 1].slice(1)} ${m.slice(0, 4)}`;
+  const draw = async () => {
+    body.replaceChildren();
+    const bar = el('div', 'tools'); const r1 = el('div', 'frow');
+    const fut = el('button', 'fchip', '← Agenda à venir'); fut.onclick = () => { location.hash = '#espace/agenda'; }; r1.append(fut); bar.append(r1); body.append(bar);
+    const key = F.month || 'auto';
+    if (!cache[key]) { status.textContent = 'Chargement des événements passés…'; try { cache[key] = await call('/agenda-past', F.month ? { month: F.month } : {}); } catch (e) { status.textContent = 'Impossible de charger : ' + e.message; return; } if (!F.month) F.month = cache[key].month; }
+    const data = cache[F.month] || cache[key];
+    const months = []; { let [y, m] = today.split('-').map(Number); for (let i = 0; i < 48; i++) { m -= 1; if (m < 1) { m = 12; y -= 1; } months.push(`${y}-${String(m).padStart(2, '0')}`); } }
+    const form = el('div', 'ag-form'); const fld = (label, ctl) => { const w = el('label', 'ag-fld'); w.append(el('span', '', label), ctl); return w; };
+    const ms = el('select', 'fsel'); for (const m of months) ms.append(new Option(monthLabel(m), m)); if (!months.includes(F.month)) ms.append(new Option(monthLabel(F.month), F.month)); ms.value = F.month; ms.onchange = () => { F.month = ms.value; F.shown = 14; draw(); };
+    const sel = el('select', 'fsel'); sel.append(new Option('Toutes les bibliothèques', '')); for (const l of data.libraries) sel.append(new Option(l, l)); sel.value = F.lib; sel.onchange = () => { F.lib = sel.value; F.shown = 14; draw(); };
+    const q = el('input', 'fsel'); q.type = 'search'; q.placeholder = 'Titre, lieu, mot-clé…'; q.value = F.q; q.onchange = () => { F.q = q.value.trim(); F.shown = 14; draw(); };
+    form.append(fld('🗓️ Mois', ms), fld('🏛️ Bibliothèque', sel), fld('🔎 Recherche', q)); bar.append(form);
+    const nq = agNorm(F.q);
+    const occ = [];
+    for (const e of data.events) if ((!F.lib || e.library === F.lib) && (!nq || agNorm(`${e.title} ${e.library} ${e.espace}`).includes(nq))) for (const d of e.dates) occ.push({ d, e });
+    occ.sort((a, b) => b.d.localeCompare(a.d) || (a.e.hour || '').localeCompare(b.e.hour || '') || a.e.title.localeCompare(b.e.title, 'fr'));
+    const days = [...new Set(occ.map((o) => o.d))];
+    for (const d of days.slice(0, F.shown)) {
+      body.append(el('h3', 'ag-day', dayLabel(d, today))); const ul = el('ul', 'cards');
+      for (const { e } of occ.filter((o) => o.d === d)) {
+        const li = el('li', 'card ag-card past');
+        if (e.image) { const im = el('img', 'ag-thumb'); im.alt = ''; im.loading = 'lazy'; im.referrerPolicy = 'no-referrer'; im.src = e.image; im.onerror = () => im.remove(); li.append(im); }
+        const t = el('div', 'ag-body'); const h = el('h3'); const a = el('a', 'doc-link', e.title); a.href = '#espace';
+        a.onclick = (ev) => { ev.preventDefault(); showAgendaEvent(body, status, e, () => draw(), today); }; h.append(a);
+        t.append(h, el('p', 'ag-meta', [e.hour, e.library, e.espace].filter(Boolean).join(' · '))); li.append(t); ul.append(li);
+      }
+      body.append(ul);
+    }
+    if (days.length > F.shown) { const m = el('button', 'secondary', `Voir les jours précédents (${days.length - F.shown} de plus)`); m.onclick = () => { F.shown += 14; draw(); }; body.append(m); }
+    const n = new Set(occ.map((o) => o.e.id)).size;
+    status.textContent = occ.length ? `${n} événement${n > 1 ? 's' : ''} en ${monthLabel(F.month)}` : `Aucun événement en ${monthLabel(F.month)} (le portail ne conserve pas tous les événements passés).`;
+  };
+  draw();
 }
 
 // Normalisation des noms de bibliothèque (« Bibliothèque de l'Alcazar » ≈ « Alcazar »).
@@ -1565,6 +1622,7 @@ async function openEspace(kind) {
   if (espaceKind === 'nouveautes') return showNouveautes(body, status);
   if (espaceKind === 'agenda') return showAgenda(body, status);
   if (espaceKind === 'mesevenements') return showMyEvents(body, status);
+  if (espaceKind === 'agendapasse') return showAgendaPast(body, status);
   if (espaceKind === 'aujourdhui') return showAujourdhui(body, status);
   if (espaceKind === 'recherches') return showSavedSearches(body, status);
   status.textContent = 'Chargement…';
