@@ -626,21 +626,24 @@ export async function reserveInfo(creds, id, fetchFn = fetch, debug = false) {
   const vols = await c.get(token, 'reservationVolumes', { id, locale: 'fr' }).catch((e) => ({ errorReponse: true, error: e.message }));
   // Le portail réserve un exemplaire précis : on essaie d'abord ceux qui ne sont pas disponibles (déjà sortis), puis les autres, puis sans exemplaire.
   const candidates = [...copies.filter((x) => x.canReserve), ...copies.filter((x) => !x.canReserve)].slice(0, 4).map((x) => x.no);
-  let choices, copyNo = '';
-  for (const no of [...candidates, '']) {
+  let choices, copyNo = '', firstEmpty = null;
+  // Comme le site officiel : d'abord SANS numéro d'exemplaire (document entier), puis exemplaire par exemplaire. Une réponse sans lieu
+  // de retrait n'est pas retenue tant qu'une autre forme de demande peut en proposer.
+  for (const no of ['', ...candidates]) {
     for (const [how, call] of [
       ['GET', () => c.get(token, 'reservationChoices', { id, ...(no ? { serialCopyNo: no } : {}), locale: 'fr' })],
       ['POST', () => c.post(token, 'reservationChoices', { id, ...(no ? { serialCopyNo: no } : {}), locale: 'fr' })],
     ]) {
-      try { const r = await call(); if (!r?.errorReponse) { choices = r; copyNo = no; break; } errs.push(`${how} ${no}: ${String(r.error || r.code).slice(0, 80)}`); } catch (e) { errs.push(`${how} ${no}: ${e.message.replace(/^Portail: reservationChoices → /, '').slice(0, 60)}`); }
+      try { const r = await call(); if (!r?.errorReponse) { if ((r.branchList ?? []).length || (r.userTrapLevel === 'Error' && (r.trapList ?? []).length)) { choices = r; copyNo = no; break; } firstEmpty ??= { r, no }; errs.push(`${how} ${no || 'document'}: aucun lieu`); break; } errs.push(`${how} ${no}: ${String(r.error || r.code).slice(0, 80)}`); } catch (e) { errs.push(`${how} ${no}: ${e.message.replace(/^Portail: reservationChoices → /, '').slice(0, 60)}`); }
     }
     if (choices) break;
   }
+  if (!choices && firstEmpty) { choices = firstEmpty.r; copyNo = firstEmpty.no; }
   if (!choices) throw new Error(`Réservation : le portail ne propose pas de lieu de retrait pour ce document (${copies.length} exemplaire${copies.length > 1 ? 's' : ''} ; ${errs.join(' | ')})`);
   const volumes = Array.isArray(vols) ? vols.map((v) => String(v.volume ?? '')).filter(Boolean) : [];
   const branches = (choices.branchList ?? []).map((b) => ({ code: String(b.branchCode ?? ''), name: String(b.branchDesc_fre || b.branchDesc || b.branchCode || '').replace(new RegExp(`^${b.branchCode ?? ''}\\s*-\\s*`), '') }));
   const traps = (choices.trapList ?? []).map((t) => readable(String(t.trapMessage ?? ''))).filter(Boolean);
-  const out = { copyNo, copies, volumes, branches, traps, blocked: choices.userTrapLevel === 'Error' && traps.length > 0 };
+  const out = { copyNo, copies, volumes, branches, traps, notes: errs.slice(0, 6), blocked: choices.userTrapLevel === 'Error' && traps.length > 0 };
   return debug ? { ...out, shape: { stock: shapeOf(stock), volumes: shapeOf(vols), choices: shapeOf(choices) } } : out;
 }
 

@@ -501,6 +501,7 @@ function reserveSheet(item, li) {
     sheet.replaceChildren();
     if (info.blocked || !info.branches.length) {
       sheet.append(el('p', 'hint err', info.traps[0] || "La bibliothèque n'autorise pas la réservation de ce document pour le moment."));
+      if (!info.traps[0] && info.notes?.length) sheet.append(el('p', 'hint', 'Détail technique : ' + info.notes.join(' · ') + (info.copies?.length ? ` · ${info.copies.length} exemplaire(s)` : '')));
       return;
     }
     if (info.copies.length) {
