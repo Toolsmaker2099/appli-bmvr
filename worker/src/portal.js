@@ -1111,6 +1111,8 @@ export async function fetchDocuments(creds, ids, fetchFn = fetch) {
 const ACCESS_RE = /^(Accessible [àa] distance|Accessible dans les biblioth[èe]ques|Acc[èe]s libre)$/i;
 const SKIP_TEXT = /^(Voir les contenus|Vid[ée]o de pr[ée]sentation|Guide [àa] t[ée]l[ée]charger|En savoir plus)$/i;
 const decode = (t) => String(t).replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;|&apos;/g, "'").replace(/&rsquo;/g, '\u2019').replace(/\s+/g, ' ').trim();
+// Services retenus par Tom (les autres de la page « En ligne » ne sont pas proposés).
+const WANTED = [/^brief ?me$/i, /^retronews$/i, /^mangas\.io$/i, /^pr[êe]t de livres num/i, /^mozaik$/i, /^les yeux doc$/i, /^t[ëe]nk$/i, /^philharmonie/i, /^ma petite m[ée]diath/i, /^brief\.science$/i, /^openedition/i, /^brief\.eco$/i, /^podcasts radio france$/i, /^m[ée]diapart$/i, /^cafeyn$/i, /^marsactu$/i];
 export function parseServices(graph) {
   const pages = Object.values(graph?.content ?? {}).filter((v) => v?.contentType === 'CMSPage');
   const page = pages.find((v) => v.properties?.title?.fr === 'En ligne') ?? pages[0];
@@ -1155,6 +1157,7 @@ export function parseServices(graph) {
   };
   for (const n of data.filter((x) => !nodes.has(String(x.parent)))) walk(n);
   flush();
+  for (const x of sections) x.items = x.items.filter((i) => WANTED.some((re) => re.test(i.name)));
   return { sections: sections.filter((x) => x.items.length) };
 }
 export async function fetchServices(fetchFn = fetch) {

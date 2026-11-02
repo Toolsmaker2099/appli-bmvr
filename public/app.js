@@ -5,7 +5,7 @@ const $ = (id) => document.getElementById(id);
 const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
 // Plusieurs comptes sur le même appareil : chaque compte a ses propres identifiants et ses propres copies de données.
 // Les clés « par compte » sont rangées sous p:<id>:<clé> ; 'profiles' liste les comptes et 'active' donne le compte courant.
-const PER = new Set(['user', 'pass', 'cache', 'resaCache', 'msgCache', 'seenMsgs', 'pickup', 'lastTrace']);
+const PER = new Set(['svcPins', 'svcCache', 'user', 'pass', 'cache', 'resaCache', 'msgCache', 'seenMsgs', 'pickup', 'lastTrace']);
 const raw = {
   get: (k) => { try { return localStorage.getItem(k) || ''; } catch { return ''; } },
   set: (k, v) => { try { localStorage.setItem(k, v); } catch {} },
@@ -97,7 +97,7 @@ function go() {
   $('sync').hidden = !['prets', 'resa'].includes(tab) || !hasCreds();
   renderUserChip();
   window.scrollTo(0, 0);
-  if (tab === 'accueil') renderSummary();
+  if (tab === 'accueil') { renderSummary(); renderServicesHome(); }
   if (tab === 'compte') renderAccount();
   if (tab === 'prets') openLoans(); // les prêts ne sont lus que lorsqu'on ouvre leur onglet
   if (tab === 'resa') openReservations();
@@ -825,7 +825,7 @@ function addFavButton(li, item) {
 }
 
 // ---------- mon espace ----------
-const ESPACE = { profile: 'Mon profil', favoris: 'Mes favoris', loanhistory: 'Historique des prêts', messages: 'Messages', fines: 'Amendes', bibliotheques: 'Bibliothèques', nouveautes: 'Nouveautés', aujourdhui: 'À emprunter aujourd’hui', recherches: 'Mes recherches', enligne: 'Services en ligne' };
+const ESPACE = { profile: 'Mon profil', favoris: 'Mes favoris', loanhistory: 'Historique des prêts', messages: 'Messages', fines: 'Amendes', bibliotheques: 'Bibliothèques', nouveautes: 'Nouveautés', aujourdhui: 'À emprunter aujourd’hui', recherches: 'Mes recherches' };
 const MENU = [
   ['profile', '👤', 'Mon profil', 'Coordonnées et abonnement'],
   ['favoris', '♡', 'Mes favoris', 'Vos listes de documents'],
@@ -835,7 +835,6 @@ const MENU = [
   ['aujourdhui', '🎯', 'À emprunter aujourd’hui', 'Livres de vos listes disponibles, bibliothèque ouverte'],
   ['nouveautes', '✨', 'Nouveautés', 'Derniers arrivages par bibliothèque'],
   ['recherches', '🔎', 'Mes recherches', 'Recherches sauvegardées'],
-  ['enligne', '🌐', 'Services en ligne', 'Presse, livres numériques, cinéma, formation…'],
   ['bibliotheques', '🏛️', 'Bibliothèques', 'Infos du réseau, itinéraires, horaires'],
 ];
 let espaceKind = store.get('espaceKind') || 'favoris';
@@ -1136,54 +1135,56 @@ async function showLibraries(body, status) {
 
 // Services en ligne : lus à chaque ouverture sur la page officielle « En ligne ».
 const SVC_ICON = { Presse: '📰', 'Livres numériques': '📱', 'Se former en ligne': '🎓', Cinéma: '🎬', Musique: '🎵', Jeunesse: '🧒', Encyclopédies: '📚', Sciences: '🔬', 'Sciences humaines': '🏛️', Podcasts: '🎧' };
-async function openService(it, btn, status) {
+// Accueil : services en ligne par thème, avec épinglage (les épinglés remontent en haut).
+const SVC_KEYS = { 'Médiapart': 'mediapart', Cafeyn: 'cafeyn' };
+const DEFAULT_PINS = ['Médiapart', 'Cafeyn', 'Marsactu'];
+const readPins = () => { try { const v = JSON.parse(store.get('svcPins') || 'null'); return Array.isArray(v) ? v : DEFAULT_PINS; } catch { return DEFAULT_PINS; } };
+const writePins = (a) => store.set('svcPins', JSON.stringify(a));
+const shortDesc = (t) => { t = t || ''; return t.length > 46 ? t.slice(0, 44).replace(/\s+\S*$/, '') + '…' : t; };
+async function openServiceItem(it, tile) {
+  const err = $('svcErr'); err.textContent = '';
   const open = (u) => window.open(u, '_blank', 'noopener');
-  if (it.name === 'Marsactu') return open('https://www.bmvr.marseille.fr/en-ligne'); // accès par clic depuis le site de la BMVR (voir plus haut)
+  if (it.name === 'Marsactu') return open('https://www.bmvr.marseille.fr/en-ligne'); // accès par clic depuis le site de la BMVR
   if (it.kind !== 'sso') return open(it.url);
   if (!hasCreds()) { location.hash = '#compte'; return; }
-  const label = btn.textContent; btn.disabled = true; btn.textContent = 'Connexion…';
+  const strong = tile.querySelector('strong'), label = strong.textContent; tile.disabled = true; strong.textContent = label + '…';
   try {
-    const r = await fetch(RELAY + '/service', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: store.get('user'), password: store.get('pass'), url: it.url }) });
+    const r = await fetch(RELAY + '/service', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: store.get('user'), password: store.get('pass'), ...(SVC_KEYS[it.name] ? { service: SVC_KEYS[it.name] } : { url: it.url }) }) });
     const data = await r.json();
     if (r.status === 401) { signOut(); location.hash = '#compte'; $('err').textContent = data.error || 'Identifiants refusés par la BMVR.'; return; }
     if (!r.ok) throw new Error(data.error || 'HTTP ' + r.status);
     location.assign(data.url);
   } catch (e) {
-    // La connexion automatique n'a pas abouti : on ouvre la page du service (ou, à défaut, celle de la BMVR), où l'on se connecte comme sur le site.
-    status.textContent = `${it.name} : connexion automatique impossible (${e.message}). Ouverture de la page du service.`;
+    // Connexion automatique impossible : on ouvre la page du service (ou celle de la BMVR) pour se connecter comme sur le site.
+    err.textContent = `${it.name} : connexion automatique impossible (${e.message}). Ouverture de la page du service.`;
     open(it.external ? it.url : 'https://www.bmvr.marseille.fr/en-ligne');
-  } finally { btn.disabled = false; btn.textContent = label; }
+  } finally { tile.disabled = false; strong.textContent = label; }
 }
-async function showServices(body, status) {
-  status.textContent = 'Lecture de la page officielle…';
+function drawServices(data) {
+  const box = $('svcHome'); box.replaceChildren();
+  const pins = readPins();
+  const all = data.sections.flatMap((x) => x.items.map((it) => ({ ...it, theme: x.title })));
+  const tileOf = (it) => {
+    const wrap = el('div', 'tile-wrap');
+    const t = el('button', 'tile service'); t.append(el('span', 'ico', SVC_ICON[it.theme] || '🌐'), el('strong', '', it.name), el('small', '', it.name === 'Marsactu' ? 'Journal local · via le site BMVR' : shortDesc(it.desc)));
+    t.onclick = () => openServiceItem(it, t);
+    const on = pins.includes(it.name);
+    const pin = el('button', 'pin' + (on ? ' on' : ''), on ? '★' : '☆'); pin.setAttribute('aria-label', (on ? 'Désépingler ' : 'Épingler ') + it.name); pin.setAttribute('aria-pressed', String(on));
+    pin.onclick = (e) => { e.stopPropagation(); writePins(on ? pins.filter((n) => n !== it.name) : [...pins, it.name]); drawServices(data); };
+    wrap.append(t, pin); return wrap;
+  };
+  const section = (title, items) => { if (!items.length) return; box.append(el('h3', 'sec-t', title)); const g = el('div', 'tiles'); g.append(...items.map(tileOf)); box.append(g); };
+  section('⭐ Épinglés', pins.map((n) => all.find((it) => it.name === n)).filter(Boolean));
+  for (const sec of data.sections) section(`${SVC_ICON[sec.title] || '🌐'} ${sec.title}`, all.filter((it) => it.theme === sec.title && !pins.includes(it.name)));
+}
+async function renderServicesHome() {
+  const box = $('svcHome'); if (!box) return;
+  if (!hasCreds()) { box.replaceChildren(); return; }
+  let cached = null; try { cached = JSON.parse(store.get('svcCache') || 'null'); } catch {}
+  if (cached?.sections) drawServices(cached); else box.textContent = 'Chargement des services…';
   try {
-    const d = await call('/services');
-    status.textContent = '';
-    const filter = el('input'); filter.type = 'search'; filter.placeholder = 'Filtrer les services…'; filter.className = 'svc-filter'; filter.setAttribute('aria-label', 'Filtrer les services');
-    const box = el('div');
-    body.append(filter, box);
-    const draw = () => {
-      const q = filter.value.trim().toLowerCase(); box.replaceChildren(); let n = 0;
-      for (const sec of d.sections) {
-        const items = sec.items.filter((it) => !q || (it.name + ' ' + it.desc + ' ' + sec.title).toLowerCase().includes(q));
-        if (!items.length) continue; n += items.length;
-        box.append(el('h3', 'sec-t', `${SVC_ICON[sec.title] || '🌐'} ${sec.title}`));
-        const ul = el('ul', 'cards');
-        for (const it of items) {
-          const li = el('li', 'card svc');
-          const h = el('div', 'svc-h'); h.append(el('strong', '', it.name), el('span', 'chip ' + (it.access === 'Accessible à distance' ? 'good' : it.access === 'Accès libre' ? 'good' : 'warn'), it.access === 'Accessible à distance' ? 'À distance' : it.access === 'Accès libre' ? 'Accès libre' : 'Dans les bibliothèques'));
-          li.append(h);
-          if (it.desc) li.append(el('p', 'svc-d', it.desc));
-          const b = el('button', 'primary small', it.kind === 'notice' ? 'Voir sur le site de la BMVR' : 'Ouvrir'); b.onclick = () => openService(it, b, status);
-          li.append(b); ul.append(li);
-        }
-        box.append(ul);
-      }
-      if (!n) box.append(emptyState('🔎', 'Aucun service', 'Aucun service ne correspond à ce filtre.'));
-    };
-    filter.oninput = draw; draw();
-    body.append(el('p', 'hint', 'Services lus sur la page « En ligne » du site officiel. Les services « à distance » s’ouvrent connectés avec votre carte ; si la connexion automatique échoue, la page du service s’ouvre pour vous connecter comme sur le site.'));
-  } catch (e) { status.textContent = 'Impossible de lire les services : ' + e.message; }
+    const d = await call('/services'); store.set('svcCache', JSON.stringify(d)); drawServices(d);
+  } catch (e) { if (!cached) box.textContent = 'Services indisponibles pour le moment : ' + e.message; }
 }
 
 // Nouveautés : documents marqués comme nouveautés par les bibliothèques.
@@ -1291,7 +1292,6 @@ async function openEspace(kind) {
   if (espaceKind === 'favoris') return showBaskets(body, status);
   if (espaceKind === 'bibliotheques') return showLibraries(body, status);
   if (espaceKind === 'nouveautes') return showNouveautes(body, status);
-  if (espaceKind === 'enligne') return showServices(body, status);
   if (espaceKind === 'aujourdhui') return showAujourdhui(body, status);
   if (espaceKind === 'recherches') return showSavedSearches(body, status);
   status.textContent = 'Chargement…';

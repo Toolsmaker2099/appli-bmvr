@@ -260,3 +260,8 @@ audio.player{width:100%;margin:4px 0 12px}
 .svc-filter{width:100%;box-sizing:border-box;margin:0 0 8px;padding:10px 12px;border:1px solid var(--line,#ddd);border-radius:12px;font:inherit;background:var(--card,#fff)}
 .card.svc .svc-h{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}
 .card.svc .svc-d{margin:6px 0 10px;font-size:.9rem;color:var(--muted,#555)}
+
+.tile-wrap{position:relative}
+.tile-wrap .tile{width:100%;height:100%;box-sizing:border-box;padding-right:44px}
+.pin{position:absolute;top:6px;right:6px;width:36px;height:36px;border:0;background:transparent;font-size:1.25rem;color:var(--muted,#777);border-radius:10px;cursor:pointer}
+.pin.on{color:#c98a00}
