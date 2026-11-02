@@ -908,7 +908,7 @@ function addFavButton(li, item) {
 }
 
 // ---------- mon espace ----------
-const ESPACE = { profile: 'Mon profil', favoris: 'Mes favoris', loanhistory: 'Historique des prêts', messages: 'Messages', fines: 'Amendes', bibliotheques: 'Bibliothèques', nouveautes: 'Nouveautés', aujourdhui: 'À emprunter aujourd’hui', recherches: 'Mes recherches' };
+const ESPACE = { profile: 'Mon profil', favoris: 'Mes favoris', loanhistory: 'Historique des prêts', messages: 'Messages', fines: 'Amendes', bibliotheques: 'Bibliothèques', nouveautes: 'Nouveautés', agenda: 'Agenda des bibliothèques', aujourdhui: 'À emprunter aujourd’hui', recherches: 'Mes recherches' };
 const MENU = [
   ['profile', '👤', 'Mon profil', 'Coordonnées et abonnement'],
   ['favoris', '♡', 'Mes favoris', 'Vos listes de documents'],
@@ -916,6 +916,7 @@ const MENU = [
   ['messages', '✉️', 'Messages', 'Avis de la bibliothèque'],
   ['fines', '💶', 'Amendes', 'Montants éventuels à régler'],
   ['aujourdhui', '🎯', 'À emprunter aujourd’hui', 'Livres de vos listes disponibles, bibliothèque ouverte'],
+  ['agenda', '📅', 'Agenda', 'Événements à venir dans les bibliothèques'],
   ['nouveautes', '✨', 'Nouveautés', 'Derniers arrivages par bibliothèque'],
   ['recherches', '🔎', 'Mes recherches', 'Recherches sauvegardées'],
   ['bibliotheques', '🏛️', 'Bibliothèques', 'Infos du réseau, itinéraires, horaires'],
@@ -1305,6 +1306,125 @@ async function showNouveautes(body, status) {
   paintBar(); more.onclick = () => load(true); await load(false);
 }
 
+
+// ---------- Agenda des bibliothèques ----------
+const AG_DAYS = ['dimanche', 'lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi'];
+const AG_MONTHS = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'];
+const isoUTC = (iso) => { const [y, m, d] = iso.split('-').map(Number); return new Date(Date.UTC(y, m - 1, d)); };
+const isoAdd = (iso, n) => { const t = isoUTC(iso); t.setUTCDate(t.getUTCDate() + n); return t.toISOString().slice(0, 10); };
+const dayLabel = (iso, today) => {
+  const t = isoUTC(iso); const name = AG_DAYS[t.getUTCDay()];
+  const lab = `${name[0].toUpperCase()}${name.slice(1)} ${t.getUTCDate()} ${AG_MONTHS[t.getUTCMonth()]}${iso.slice(0, 4) !== today.slice(0, 4) ? ' ' + iso.slice(0, 4) : ''}`;
+  return iso === today ? `Aujourd’hui · ${lab}` : iso === isoAdd(today, 1) ? `Demain · ${lab}` : lab;
+};
+const agNorm = (x) => String(x || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+
+function icsDownload(ev, date, start, end) {
+  const d = date.replace(/-/g, ''); const t = (h) => (h && /^\d{1,2}:\d{2}$/.test(h) ? h.padStart(5, '0').replace(':', '') + '00' : '');
+  const esc = (v) => String(v || '').replace(/\\/g, '\\\\').replace(/[,;]/g, (c) => '\\' + c).replace(/\n/g, '\\n');
+  const s = t(start), e = t(end) || s;
+  const lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//appli-bmvr//FR', 'BEGIN:VEVENT', `UID:${d}-${Math.abs([...ev.id].reduce((a, c) => (a * 31 + c.charCodeAt(0)) | 0, 7))}@appli-bmvr`,
+    `DTSTAMP:${new Date().toISOString().replace(/[-:]|\.\d+/g, '')}`, s ? `DTSTART:${d}T${s}` : `DTSTART;VALUE=DATE:${d}`, s ? `DTEND:${d}T${e}` : `DTEND;VALUE=DATE:${isoAdd(date, 1).replace(/-/g, '')}`,
+    `SUMMARY:${esc(ev.title)}`, `LOCATION:${esc([ev.library, ev.address].filter(Boolean).join(' – '))}`, `DESCRIPTION:${esc((ev.description || '').slice(0, 600))}`, 'END:VEVENT', 'END:VCALENDAR'];
+  const a = el('a'); a.href = URL.createObjectURL(new Blob([lines.join('\r\n')], { type: 'text/calendar' })); a.download = 'evenement.ics';
+  document.body.append(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 500);
+}
+
+async function showAgendaEvent(body, status, item, back, today) {
+  body.replaceChildren(); status.textContent = 'Chargement de l’événement…';
+  const b = el('button', 'secondary', '← Retour à l’agenda'); b.onclick = back; body.append(b);
+  try {
+    const ev = await call('/agenda-event', { id: item.id });
+    status.textContent = '';
+    const card = el('div', 'card ag-detail');
+    const img = ev.image || item.image;
+    if (img) { const im = el('img', 'ag-img'); im.alt = ''; im.loading = 'lazy'; im.referrerPolicy = 'no-referrer'; im.src = img; im.onerror = () => im.remove(); card.append(im); }
+    const pad = el('div', 'ag-pad'); card.append(pad);
+    pad.append(el('h2', 'ag-title', ev.title || item.title));
+    const rowsEl = el('dl', 'ag-rows');
+    const add = (k, v) => { if (!v) return null; const dt = el('dt', '', k); const dd = el('dd'); if (typeof v === 'string') dd.textContent = v; else dd.append(v); rowsEl.append(dt, dd); return dd; };
+    const up = (ev.dates || []).filter((d) => d.date >= today);
+    const dl = el('div');
+    for (const d of up.slice(0, 8)) dl.append(el('div', '', `${dayLabel(d.date, today)}${d.start ? ' · ' + d.start + (d.end ? '–' + d.end : '') : ''}`));
+    if (up.length > 8) dl.append(el('div', 'muted', `… et ${up.length - 8} autre${up.length - 8 > 1 ? 's' : ''} date${up.length - 8 > 1 ? 's' : ''}`));
+    add(up.length > 1 ? 'Dates' : 'Quand', up.length ? dl : (ev.when ? ev.when + (ev.hour ? ' · ' + ev.hour : '') : ''));
+    const where = el('div'); if (ev.library) where.append(el('div', '', ev.library + (ev.espace ? ' · ' + ev.espace : '')));
+    if (ev.address) { const a = el('a', '', ev.address); a.href = 'https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(`${ev.library} ${ev.address}`); a.target = '_blank'; a.rel = 'noopener noreferrer'; where.append(a); }
+    add('Où', where.childNodes.length ? where : '');
+    add('Type', ev.kind); add('Public', ev.audience); add('Pôle', ev.department); add('Condition', ev.condition);
+    const ct = el('div');
+    if (ev.phone) { const a = el('a', '', ev.phone); a.href = 'tel:' + ev.phone.replace(/[^\d+]/g, ''); ct.append(a); }
+    if (ev.email) { const a = el('a', '', ev.email); a.href = 'mailto:' + ev.email; ct.append(a); }
+    add('Inscription / contact', ct.childNodes.length ? ct : '');
+    pad.append(rowsEl);
+    if (ev.description) for (const para of ev.description.split(/\n{2,}/)) { const p = el('p', 'ag-desc'); p.textContent = para; pad.append(p); }
+    const btns = el('div', 'btn-row');
+    if (up.length) { const c = el('button', 'secondary', '📅 Ajouter au calendrier'); c.onclick = () => icsDownload(ev, up[0].date, up[0].start || ev.hour, up[0].end || ev.endHour); btns.append(c); }
+    if (navigator.share) { const sh = el('button', 'secondary', 'Partager'); sh.onclick = () => navigator.share({ title: ev.title, text: `${ev.title} – ${ev.when || ''} ${ev.hour || ''} – ${ev.library || ''}`.replace(/\s+/g, ' ') }).catch(() => {}); btns.append(sh); }
+    pad.append(btns); body.append(card);
+  } catch (e) { status.textContent = 'Impossible de charger l’événement : ' + e.message; }
+}
+
+async function showAgenda(body, status) {
+  status.textContent = 'Chargement de l’agenda…';
+  let data;
+  try { data = await call('/agenda'); } catch (e) { status.textContent = 'Impossible de charger l’agenda : ' + e.message; return; }
+  const today = data.from;
+  const F = { period: 'all', day: '', lib: '', dep: '', q: '', regular: false, days: 14 };
+  const REG = 10; // au-delà de 10 dates à venir : « rendez-vous régulier »
+  const draw = () => {
+    body.replaceChildren();
+    const bar = el('div', 'tools'); const r1 = el('div', 'frow'); const r2 = el('div', 'frow');
+    const wd = isoUTC(today).getUTCDay(); const sat = isoAdd(today, wd === 0 ? 0 : 6 - wd);
+    const PERIODS = [['all', 'Tout'], ['today', 'Aujourd’hui'], ['tomorrow', 'Demain'], ['weekend', 'Ce week-end'], ['week', '7 jours'], ['month', '30 jours']];
+    for (const [k, l] of PERIODS) { const c = el('button', 'fchip' + (F.period === k ? ' on' : ''), l); c.onclick = () => { F.period = k; F.day = ''; F.days = 14; draw(); }; r1.append(c); }
+    const di = el('input', 'fsel'); di.type = 'date'; di.min = today; di.value = F.day; di.title = 'Un jour précis'; di.setAttribute('aria-label', 'Un jour précis');
+    di.onchange = () => { F.day = di.value; F.period = di.value ? 'day' : 'all'; F.days = 14; draw(); };
+    const sel = (label, value, opts, fn) => { const x = el('select', 'fsel'); x.append(new Option(label, '')); for (const o of opts) x.append(new Option(o, o)); x.value = value; x.onchange = () => fn(x.value); return x; };
+    r2.append(di, sel('Toutes les bibliothèques', F.lib, data.libraries, (v) => { F.lib = v; F.days = 14; draw(); }));
+    const deps = [...data.departments.map((d) => d.name), 'Autres'];
+    r2.append(sel('Tous les publics et pôles', F.dep, deps, (v) => { F.dep = v; F.days = 14; draw(); }));
+    const q = el('input', 'fsel'); q.type = 'search'; q.placeholder = 'Rechercher un événement…'; q.value = F.q; q.setAttribute('aria-label', 'Rechercher un événement');
+    q.onkeydown = (e) => { if (e.key === 'Enter') { F.q = q.value.trim(); F.days = 14; draw(); } };
+    q.onchange = () => { F.q = q.value.trim(); F.days = 14; draw(); };
+    bar.append(r1, r2, q); body.append(bar);
+
+    const [from, to] = F.period === 'today' ? [today, today] : F.period === 'tomorrow' ? [isoAdd(today, 1), isoAdd(today, 1)] : F.period === 'weekend' ? [wd === 0 ? today : sat, wd === 0 ? today : isoAdd(sat, 1)] : F.period === 'week' ? [today, isoAdd(today, 6)] : F.period === 'month' ? [today, isoAdd(today, 29)] : F.period === 'day' && F.day ? [F.day, F.day] : [today, '9999-12-31'];
+    const nq = agNorm(F.q);
+    const ok = (e) => (!F.lib || e.library === F.lib) && (!F.dep || (e.department || 'Autres') === F.dep) && (!nq || agNorm(`${e.title} ${e.library} ${e.espace} ${e.department || ''}`).includes(nq));
+    const evs = data.events.filter(ok);
+    const regular = evs.filter((e) => e.dates.length > REG);
+    const occ = [];
+    for (const e of evs) { if (e.dates.length > REG && !F.regular) continue; for (const d of e.dates) if (d >= from && d <= to) occ.push({ d, e }); }
+    occ.sort((a, b) => a.d.localeCompare(b.d) || (a.e.hour || '99').localeCompare(b.e.hour || '99') || a.e.title.localeCompare(b.e.title, 'fr'));
+    const days = [...new Set(occ.map((o) => o.d))];
+    const list = el('div', 'ag-list'); body.append(list);
+    const open = (e) => showAgendaEvent(body, status, e, () => { status.textContent = ''; draw(); }, today);
+    for (const d of days.slice(0, F.days)) {
+      list.append(el('h3', 'ag-day', dayLabel(d, today)));
+      const ul = el('ul', 'cards');
+      for (const { e } of occ.filter((o) => o.d === d)) {
+        const li = el('li', 'card ag-card');
+        if (e.image) { const im = el('img', 'ag-thumb'); im.alt = ''; im.loading = 'lazy'; im.referrerPolicy = 'no-referrer'; im.src = e.image; im.onerror = () => im.remove(); li.append(im); }
+        const t = el('div', 'ag-body');
+        const h = el('h3'); const a = el('a', 'doc-link', e.title); a.href = '#espace'; a.onclick = (ev) => { ev.preventDefault(); open(e); }; h.append(a);
+        t.append(h, el('p', 'ag-meta', [e.hour, e.library, e.espace].filter(Boolean).join(' · ')));
+        const more = e.dates.filter((x) => x > d).length;
+        if (e.dates.length > REG) t.append(el('p', 'ag-tag', 'Rendez-vous régulier'));
+        else if (more) t.append(el('p', 'ag-tag', `+ ${more} autre${more > 1 ? 's' : ''} date${more > 1 ? 's' : ''}`));
+        li.append(t); ul.append(li);
+      }
+      list.append(ul);
+    }
+    if (days.length > F.days) { const m = el('button', 'secondary', `Voir les jours suivants (${days.length - F.days} de plus)`); m.onclick = () => { F.days += 14; draw(); }; body.append(m); }
+    if (regular.length && !F.regular) { const m = el('button', 'secondary', `Afficher les rendez-vous réguliers (${regular.length})`); m.onclick = () => { F.regular = true; draw(); }; body.append(m); }
+    else if (F.regular) { const m = el('button', 'secondary', 'Masquer les rendez-vous réguliers'); m.onclick = () => { F.regular = false; draw(); }; body.append(m); }
+    const n = new Set(occ.map((o) => o.e.id)).size;
+    status.textContent = occ.length ? `${n} événement${n > 1 ? 's' : ''} · ${days.length} jour${days.length > 1 ? 's' : ''}` : 'Aucun événement avec ces filtres.';
+  };
+  draw();
+}
+
 // Normalisation des noms de bibliothèque (« Bibliothèque de l'Alcazar » ≈ « Alcazar »).
 const normBranch = (n) => String(n || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/biblioth[a-z]*|ludoth[a-z]*|\b(de|la|le|les|du|des|l|d)\b/g, ' ').replace(/[^a-z0-9]+/g, '');
 const sameBranch = (a, b) => { const x = normBranch(a), y = normBranch(b); return !!x && !!y && (x === y || x.includes(y) || y.includes(x)); };
@@ -1376,6 +1496,7 @@ async function openEspace(kind) {
   if (espaceKind === 'favoris') return showBaskets(body, status);
   if (espaceKind === 'bibliotheques') return showLibraries(body, status);
   if (espaceKind === 'nouveautes') return showNouveautes(body, status);
+  if (espaceKind === 'agenda') return showAgenda(body, status);
   if (espaceKind === 'aujourdhui') return showAujourdhui(body, status);
   if (espaceKind === 'recherches') return showSavedSearches(body, status);
   status.textContent = 'Chargement…';

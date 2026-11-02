@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { checksum, fetchLoans, fetchServiceUrl, renewLoan, parseLoans, toISODate, cleanTitle, cleanAuthor } from './src/portal.js';
+import { checksum, fetchLoans, fetchServiceUrl, renewLoan, parseLoans, toISODate, cleanTitle, cleanAuthor, parseAgenda, htmlToText } from './src/portal.js';
 
 test('somme de contrôle identique à celle du portail', () => {
   // 305419896 + 'a'(97)*1 + 'b'(98)*2
@@ -110,4 +110,20 @@ test('parseReservations et parseSearch', async () => {
   const s = parseSearch({ resultSet: [{ id: [{ value: 'p::usmarcdef_0000000123' }], title: [{ value: 'Dune' }], author: [{ value: 'Herbert, Frank' }] }] });
   assert.equal(s[0].author, 'Frank Herbert');
   assert.equal(s[0].coverId, 'p::usmarcdef_0000000123');
+});
+
+test('agenda : dates passées écartées, doublons fusionnés, notice sans id ignorée', () => {
+  const res = { resultSet: [
+    { id: [{ value: 'h::a' }], title: [{ value: 'Éveil' }], CalenderEventFacet: [{ value: '2026-11-05' }, { value: '2026-11-05' }, { value: '2026-10-01' }], meta: { startHour: [{ value: '10:00' }], libraryRelation: [{ value: 'Alcazar', relatedId: 'x' }] } },
+    { id: [{ value: 'h::b' }], title: [{ value: 'Passé' }], CalenderEventFacet: [{ value: '2026-10-01' }] },
+    { title: [{ value: 'Sans id' }], CalenderEventFacet: [{ value: '2026-11-05' }] },
+  ] };
+  const out = parseAgenda(res, '2026-11-02');
+  assert.equal(out.length, 1);
+  assert.deepEqual(out[0].dates, ['2026-11-05']);
+  assert.equal(out[0].hour, '10:00'); assert.equal(out[0].library, 'Alcazar');
+});
+
+test('htmlToText garde les paragraphes et retire les balises', () => {
+  assert.equal(htmlToText('<p>Un &amp; deux</p><p>Trois<br>quatre</p><script>x()</script>'), 'Un & deux\n\nTrois\nquatre');
 });

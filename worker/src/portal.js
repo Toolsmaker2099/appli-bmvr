@@ -1185,3 +1185,92 @@ export async function fetchServices(fetchFn = fetch) {
   const g = await c.get(null, 'contentGraphByPath', { locale: 'fr', path: '/en-ligne', depth: 6 });
   return { ...parseServices(g), fetchedAt: new Date().toISOString() };
 }
+
+// ---------- Agenda des bibliothèques ----------
+// Les événements sont des « notices » de type Event du catalogue (lisibles sans compte) : titre, dates, heure, bibliothèque.
+const parisToday = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'Europe/Paris' });
+const AGENDA_FQ = (from) => ['TypeOfDocumentFacet:Event', `CalenderEventFacet:[${from} TO *]`];
+let agendaCache = { at: 0, day: '', data: null };
+
+function eventImage(e) {
+  const v = first(e.imageSource_256) ?? first(e.imageSource_512) ?? first(e.imageSource_128);
+  if (!v || typeof v !== 'string' || !v.startsWith('/')) return '';
+  return BASE + v + (v.includes('rest/Thumb') && !v.includes('siteId=') ? (v.includes('?') ? '&' : '?') + 'siteId=mainSite' : '');
+}
+const metaVal = (e, k) => { const m = e.meta?.[k]; const x = Array.isArray(m) ? m[0] : m; return typeof x?.value === 'string' ? x.value.trim() : ''; };
+
+export function parseAgenda(res, from) {
+  const out = [];
+  for (const e of res.resultSet ?? []) {
+    const id = first(e.id); const title = first(e.title);
+    if (typeof id !== 'string' || !title) continue;
+    const dates = [...new Set((e.CalenderEventFacet ?? []).map((d) => d?.value).filter((d) => typeof d === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d) && d >= from))].sort();
+    if (!dates.length) continue;
+    dates.splice(150);
+    const lib = Array.isArray(e.meta?.libraryRelation) ? e.meta.libraryRelation[0] : null;
+    out.push({ id, title: String(title), dates, hour: metaVal(e, 'startHour'), library: lib?.value ?? '', libraryId: lib?.relatedId ?? '', espace: metaVal(e, 'espace'), address: metaVal(e, 'address'), image: eventImage(e) });
+  }
+  return out;
+}
+
+export async function fetchAgenda(fetchFn = fetch, now = Date.now()) {
+  const from = parisToday();
+  if (agendaCache.data && agendaCache.day === from && now - agendaCache.at < 10 * 60 * 1000) return agendaCache.data;
+  const c = makeClient(fetchFn);
+  await c.init();
+  const search = (fq, pageNo = 1, includeFacets = false) => c.post(null, 'search', { query: ['*'], fq, queryid: 'NONE', sf: '*', includeFacets, pageNo, pageSize: 100, locale: 'fr' });
+  const first1 = failIfError(await search(AGENDA_FQ(from), 1, true), 'Agenda');
+  let events = parseAgenda(first1, from);
+  for (let p = 2; p <= Math.min(first1.maxPageNo ?? 1, 4); p++) events = events.concat(parseAgenda(failIfError(await search(AGENDA_FQ(from), p), 'Agenda'), from));
+  // Publics / services (« Jeunesse », « Adultes »…) : le portail les expose comme une facette d'identifiants.
+  const deps = (first1.facets ?? []).find((f) => f.code === 'departmentRelation_iid')?.items ?? [];
+  const byId = new Map(events.map((e) => [e.id, e]));
+  const departments = [];
+  for (const d of deps.slice(0, 10)) {
+    const iid = String(d.value ?? '');
+    if (!/^[0-9a-f-]{36}$/.test(iid)) continue;
+    const r = await search([...AGENDA_FQ(from), `departmentRelation_iid:"${iid}"`]).catch(() => null);
+    const ids = (r?.resultSet ?? []).map((x) => first(x.id)).filter((x) => byId.has(x));
+    if (!ids.length) continue;
+    let name = '';
+    try {
+      const n = await c.get(null, 'notice', { id: ids[0], locale: 'fr', aspect: 'Meta' });
+      name = String((n.fields ?? []).find((f) => f.name === 'departmentRelation')?.values?.[0]?.qa?.Answer ?? '');
+    } catch { /* nom inconnu */ }
+    if (!name) continue;
+    departments.push({ name, count: ids.length });
+    for (const id of ids) byId.get(id).department = name;
+  }
+  const libraries = [...new Map(events.filter((e) => e.library).map((e) => [e.library, 0])).keys()].sort((a, b) => a.localeCompare(b, 'fr'));
+  const data = { events, libraries, departments, total: events.length, from, fetchedAt: new Date().toISOString() };
+  agendaCache = { at: now, day: from, data };
+  return data;
+}
+
+const decodeHtml = (s) => s.replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#0?39;|&apos;/g, "'").replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)));
+export function htmlToText(h) {
+  return decodeHtml(String(h ?? '').replace(/<(script|style)[\s\S]*?<\/\1>/gi, '').replace(/<br\s*\/?>/gi, '\n').replace(/<\/(p|div|li|h\d)>/gi, '\n\n').replace(/<li[^>]*>/gi, '• ').replace(/<[^>]+>/g, ''))
+    .replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+}
+
+export async function fetchAgendaEvent(id, fetchFn = fetch) {
+  if (!ID_RE.test(id ?? '') || !/^h::/.test(id)) throw new Error('Événement invalide');
+  const c = makeClient(fetchFn);
+  await c.init();
+  const n = failIfError(await c.get(null, 'notice', { id, locale: 'fr', aspect: 'Meta' }), 'Événement');
+  const f = {};
+  for (const x of n.fields ?? []) f[x.name] = x.values ?? [];
+  const ans = (k) => String(f[k]?.[0]?.qa?.Answer ?? '').trim();
+  const dates = (f.eventDates ?? []).map((v) => { try { const j = JSON.parse(v.qa?.json ?? '{}'); return { date: j.startDate?.value ?? '', start: j.startHour?.value ?? '', end: j.endHour?.value ?? '' }; } catch { return null; } }).filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d?.date ?? '')).sort((a, b) => a.date.localeCompare(b.date));
+  const contact = (f.sur_reservation ?? []).map((v) => String(v.qa?.Answer ?? '')).join(' ');
+  const email = (contact.match(/mailto:([^"'\s>]+)/) ?? contact.match(/[\w.+-]+@[\w-]+(?:\.[\w-]+)+/))?.[1] ?? contact.match(/[\w.+-]+@[\w-]+(?:\.[\w-]+)+/)?.[0] ?? '';
+  const phone = (htmlToText(contact).match(/(?:\+33|0)[\d .]{8,14}\d/) ?? [])[0] ?? '';
+  const img = ans('bigThumbnailUrl') || ans('poster');
+  return {
+    id, title: ans('title'), library: ans('libraryRelation'), espace: ans('espace'), address: ans('address'),
+    department: ans('departmentRelation'), kind: ans('manif'), audience: ans('type_public'), condition: ans('condition'),
+    hour: ans('startHour'), endHour: ans('endHour'), when: ans('dateFormatted'), dates,
+    email: /^[^\s<>"']+@[^\s<>"']+$/.test(email) ? email : '', phone: phone.trim(),
+    description: htmlToText(f.description?.[0]?.qa?.Answer ?? ''), image: /^https:\/\//.test(img) ? img : '',
+  };
+}
