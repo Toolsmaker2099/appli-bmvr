@@ -265,3 +265,18 @@ audio.player{width:100%;margin:4px 0 12px}
 .tile-wrap .tile{width:100%;height:100%;box-sizing:border-box;padding-right:44px}
 .pin{position:absolute;top:6px;right:6px;width:36px;height:36px;border:0;background:transparent;font-size:1.25rem;color:var(--muted,#777);border-radius:10px;cursor:pointer}
 .pin.on{color:#c98a00}
+
+.lock{position:fixed;inset:0;z-index:50;background:var(--bg,#f5f0e6);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;padding:24px;text-align:center}
+.lock[hidden]{display:none}
+.avatar.big{width:72px;height:72px;font-size:1.6rem;display:inline-flex;align-items:center;justify-content:center;border-radius:50%}
+.pin-big{font-size:2rem;letter-spacing:.6em;text-align:center;width:9em;max-width:80vw;padding:10px;border:1px solid var(--line,#ccc);border-radius:14px;background:var(--card,#fff)}
+body.is-locked > *:not(#lock){visibility:hidden}
+body.is-locked > #lock{visibility:visible}
+.card.access{padding:12px 14px;margin:10px 0}
+.card.access h4{margin:0 0 8px}
+.seg{display:flex;gap:6px;margin-bottom:6px}
+.seg-b{flex:1;padding:10px;border:1px solid var(--line,#ccc);border-radius:12px;background:var(--card,#fff);font:inherit;color:inherit}
+.seg-b.on{background:var(--accent,#1f4e5f);color:#fff;border-color:transparent}
+.pin-row{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0}
+.pin-in{width:9.5em;padding:9px;border:1px solid var(--line,#ccc);border-radius:10px;font:inherit;background:var(--card,#fff)}
+.chip-lock{margin-left:4px}

@@ -37,6 +37,22 @@ function removeActiveProfile() {
   const rest = getProfiles().filter((x) => x.id !== id);
   raw.set('profiles', JSON.stringify(rest)); raw.set('active', rest[0]?.id || '');
 }
+// ---------- accès restreint et code PIN (par compte) ----------
+// Garde-fou de l'appli, pas un coffre-fort : les identifiants restent dans le navigateur de l'appareil.
+const curProfile = () => getProfiles().find((x) => x.id === activeId());
+const isRestricted = () => curProfile()?.mode === 'restricted';
+function patchProfile(id, patch) { raw.set('profiles', JSON.stringify(getProfiles().map((p) => (p.id === id ? { ...p, ...patch } : p)))); }
+async function pinHash(id, pin) { const b = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`bmvr:${id}:${pin}`)); return [...new Uint8Array(b)].map((x) => x.toString(16).padStart(2, '0')).join(''); }
+const unlockedId = () => { try { return sessionStorage.getItem('unlocked') || ''; } catch { return ''; } };
+const setUnlocked = (id) => { try { if (id) sessionStorage.setItem('unlocked', id); else sessionStorage.removeItem('unlocked'); } catch {} };
+const isLocked = () => { const p = curProfile(); return !!(p?.pin && unlockedId() !== p.id); };
+const WRITE_PATHS = ['/renew', '/renew-many', '/reserve', '/cancel', '/delete-message'];
+function guard(path, extra = {}) {
+  if (isLocked()) throw new Error('Application verrouillée : saisissez le code.');
+  if (!isRestricted()) return;
+  const write = WRITE_PATHS.includes(path) || (path === '/basket' && extra.action && !['list', 'content'].includes(extra.action)) || (path === '/saved-searches' && extra.action && extra.action !== 'list');
+  if (write) throw new Error('Accès restreint : ce compte ne peut pas modifier le compte BMVR (réservation, prolongation, listes…).');
+}
 const hasCreds = () => !!(store.get('user') && store.get('pass'));
 const readCache = () => { try { return JSON.parse(store.get('cache') || 'null'); } catch { return null; } };
 
@@ -86,6 +102,7 @@ function renderUserChip() {
   c.hidden = !hasCreds(); if (c.hidden) return;
   c.replaceChildren(); const av = el('span', 'chip-av'); paintAvatar(av, name);
   c.append(av, el('span', 'chip-name', name));
+  if (isRestricted()) c.append(el('span', 'chip-lock', '🔒'));
   c.setAttribute('aria-label', 'Compte actif : ' + name + ' — changer de compte');
 }
 function go() {
@@ -223,6 +240,7 @@ function renewButton(l) {
     if (!confirm(`Prolonger « ${l.title} » ?\nCette action modifie votre compte à la bibliothèque.`)) return;
     btn.disabled = true; btn.textContent = 'Prolongation…'; msg.textContent = '';
     try {
+      guard('/renew');
       const r = await fetch(RELAY + '/renew', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: store.get('user'), password: store.get('pass'), documentId: l.documentNumber }) });
       const data = await r.json();
       if (!r.ok) throw new Error(data.error || 'HTTP ' + r.status);
@@ -393,6 +411,7 @@ async function openLoans() {
 
 // ---------- appels au relais ----------
 async function call(path, extra = {}) {
+  guard(path, extra);
   const r = await fetch(RELAY + path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: store.get('user'), password: store.get('pass'), ...extra }) });
   const data = await r.json().catch(() => ({}));
   if (r.status === 401) { signOut(); location.hash = '#compte'; $('err').textContent = data.error || 'Identifiants refusés par la BMVR.'; throw new Error(data.error || 'Identifiants refusés'); }
@@ -1352,11 +1371,14 @@ function renderAccount() {
       const li = el('li', pr.id === activeId() ? 'on' : '');
       const av = el('span', 'avatar'); paintAvatar(av, pr.user);
       li.append(av, el('span', 'acc-name', pr.user));
+      if (pr.mode === 'restricted') li.append(el('span', 'chip warn', 'Restreint'));
+      if (pr.pin) li.append(el('span', 'chip', '🔑 Code'));
       if (pr.id === activeId()) li.append(el('span', 'chip good', 'Actif'));
       else { li.classList.add('tap'); li.tabIndex = 0; li.setAttribute('role', 'button'); li.append(el('span', 'acc-go', 'Utiliser ›')); li.onclick = () => switchProfile(pr.id); li.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); switchProfile(pr.id); } }; }
       ul.append(li);
     }
     box.append(ul);
+    if (activeId() && !addingAccount) box.append(accessPanel());
     if (!addingAccount) { const add = el('button', 'secondary', '➕ Ajouter un autre compte'); add.onclick = () => { addingAccount = true; renderAccount(); }; box.append(add); }
   }
   $('diag').hidden = !on; $('diagSearch').hidden = !on; $('diagMars').hidden = !on;
@@ -1435,4 +1457,79 @@ if ('serviceWorker' in navigator) {
 
 updateBadge();
 updateEspaceBadge();
+// Réglages d'accès du compte actif : complet ou restreint, code à 4 chiffres.
+function accessPanel() {
+  const pr = curProfile(); const card = el('div', 'card access');
+  card.append(el('h4', '', '🔐 Accès à ce compte'));
+  const seg = el('div', 'seg');
+  const mk = (mode, txt) => { const b = el('button', 'seg-b' + ((pr.mode || 'full') === mode ? ' on' : ''), txt); b.onclick = async () => { if (!await askCurrentPin(pr, msg)) return; patchProfile(pr.id, { mode }); renderAccount(); renderUserChip(); }; return b; };
+  seg.append(mk('full', 'Accès complet'), mk('restricted', 'Accès restreint'));
+  card.append(seg);
+  card.append(el('p', 'hint', (pr.mode === 'restricted' ? 'Lecture seule : on peut consulter prêts, réservations, recherche et services, mais ni réserver, ni prolonger, ni annuler, ni supprimer un message, ni modifier les listes.' : 'Toutes les actions sur le compte BMVR sont possibles.') + (pr.mode === 'restricted' && !pr.pin ? ' Sans code, n’importe qui peut repasser en accès complet : ajoutez un code.' : '')));
+  const msg = el('p', 'hint err');
+  const cur = el('input'); cur.type = 'password'; cur.inputMode = 'numeric'; cur.maxLength = 4; cur.placeholder = 'Code actuel'; cur.autocomplete = 'off'; cur.className = 'pin-in'; cur.hidden = !pr.pin; cur.id = 'curPin';
+  const neu = el('input'); neu.type = 'password'; neu.inputMode = 'numeric'; neu.maxLength = 4; neu.placeholder = pr.pin ? 'Nouveau code' : 'Code à 4 chiffres'; neu.autocomplete = 'off'; neu.className = 'pin-in';
+  const save = el('button', 'secondary small', pr.pin ? 'Changer le code' : 'Définir un code');
+  save.onclick = async () => {
+    if (!/^\d{4}$/.test(neu.value)) { msg.textContent = 'Le code doit comporter exactement 4 chiffres.'; return; }
+    if (!await askCurrentPin(pr, msg)) return;
+    patchProfile(pr.id, { pin: await pinHash(pr.id, neu.value) }); setUnlocked(pr.id); renderAccount();
+  };
+  const row = el('div', 'pin-row'); row.append(cur, neu, save); card.append(row);
+  if (pr.pin) {
+    const del = el('button', 'secondary small danger', 'Supprimer le code');
+    del.onclick = async () => { if (!await askCurrentPin(pr, msg)) return; patchProfile(pr.id, { pin: '' }); setUnlocked(''); renderAccount(); };
+    card.append(del);
+  }
+  card.append(msg);
+  return card;
+}
+async function askCurrentPin(pr, msgEl) {
+  if (!pr.pin) return true;
+  const v = $('curPin')?.value || '';
+  if (!/^\d{4}$/.test(v) || await pinHash(pr.id, v) !== pr.pin) { msgEl.textContent = 'Saisissez le code actuel (4 chiffres) pour modifier ces réglages.'; return false; }
+  msgEl.textContent = ''; return true;
+}
+
+// Verrouillage : écran de saisie du code à l'ouverture et après 5 minutes passées en arrière-plan.
+let hiddenAt = 0;
+function renderLock() {
+  const box = $('lock'); if (!box) return;
+  if (!isLocked()) { box.hidden = true; box.replaceChildren(); document.body.classList.remove('is-locked'); return; }
+  const pr = curProfile(); box.hidden = false; document.body.classList.add('is-locked'); box.replaceChildren();
+  const av = el('span', 'avatar big'); paintAvatar(av, pr.user);
+  const inp = el('input', 'pin-big'); inp.type = 'password'; inp.inputMode = 'numeric'; inp.maxLength = 4; inp.autocomplete = 'off'; inp.placeholder = '••••'; inp.setAttribute('aria-label', 'Code à 4 chiffres');
+  const err = el('p', 'hint err');
+  const fails = () => { try { return JSON.parse(raw.get('pinFails') || '{}'); } catch { return {}; } };
+  inp.oninput = async () => {
+    inp.value = inp.value.replace(/\D/g, '').slice(0, 4);
+    if (inp.value.length < 4) return;
+    const f = fails(); const wait = (f.until || 0) - Date.now();
+    if (wait > 0) { err.textContent = `Trop d’essais : réessayez dans ${Math.ceil(wait / 1000)} s.`; inp.value = ''; return; }
+    if (await pinHash(pr.id, inp.value) === pr.pin) { raw.del('pinFails'); setUnlocked(pr.id); renderLock(); go(); return; }
+    const n = (f.n || 0) + 1; raw.set('pinFails', JSON.stringify(n >= 5 ? { n: 0, until: Date.now() + 30000 } : { n, until: 0 }));
+    err.textContent = n >= 5 ? 'Trop d’essais : attendez 30 secondes.' : 'Code incorrect.'; inp.value = '';
+  };
+  box.append(av, el('strong', '', pr.user), el('p', 'hint', 'Entrez votre code à 4 chiffres'), inp, err);
+  const others = getProfiles().filter((x) => x.id !== pr.id);
+  if (others.length) { box.append(el('p', 'hint', 'Autre compte :')); for (const o of others) { const b = el('button', 'secondary small', o.user); b.onclick = () => switchProfile(o.id); box.append(b); } }
+  setTimeout(() => inp.focus(), 50);
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) { hiddenAt = Date.now(); return; }
+  if (hiddenAt && Date.now() - hiddenAt > 5 * 60 * 1000 && curProfile()?.pin) { setUnlocked(''); renderLock(); }
+});
+
+// Accès restreint : les boutons qui modifient le compte BMVR sont masqués (le relais refuse de toute façon côté appli).
+const WRITE_BTN = /(Réserver|Prolonger|Annuler la réservation|Supprimer|Oui, supprimer|Retirer|Favoris|Nouvelle liste|Renommer|Sauvegarder cette recherche)/;
+function hideWrites(root) {
+  if (!isRestricted() || !root?.querySelectorAll) return;
+  const list = root.matches?.('button') ? [root] : root.querySelectorAll('button');
+  for (const b of list) if (!b.closest('#view-compte, #lock') && !b.dataset.ro && WRITE_BTN.test(b.textContent)) { b.hidden = true; b.dataset.ro = '1'; }
+  for (const b of root.querySelectorAll?.('.list-more, #loanTools, #selBar') ?? []) b.hidden = true;
+}
+new MutationObserver((muts) => { for (const m of muts) for (const n of m.addedNodes) if (n.nodeType === 1) hideWrites(n); }).observe(document.body, { childList: true, subtree: true });
+
+
+renderLock();
 go();
