@@ -1251,38 +1251,6 @@ export async function fetchAgenda(fetchFn = fetch, now = Date.now(), budget = 36
   return { events, libraries: base.libraries, kinds: uniq('kind'), audiences: uniq('audience'), departments: uniq('department'), pending: events.length - known.length, total: events.length, from, fetchedAt: new Date().toISOString() };
 }
 
-// Événements passés : le catalogue ne garde pas tout (rien entre fin 2025 et aujourd'hui, par exemple) : on lit un mois à la fois.
-const pastCache = new Map();
-const MONTH_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
-const monthEnd = (m) => { const [y, mo] = m.split('-').map(Number); return new Date(Date.UTC(y, mo, 0)).toISOString().slice(0, 10); };
-export async function fetchAgendaPast({ month } = {}, fetchFn = fetch, now = Date.now()) {
-  const today = parisToday();
-  const cur = today.slice(0, 7);
-  if (month != null && (!MONTH_RE.test(month) || month > cur)) throw new Error('Mois invalide');
-  const c = makeClient(fetchFn); await c.init();
-  const lookup = async (m) => {
-    const from = `${m}-01`; const to = monthEnd(m) < today ? monthEnd(m) : isoDay(today, -1);
-    const key = `${m}|${today}`; const hit = pastCache.get(key);
-    if (hit && now - hit.at < 30 * 60 * 1000) return hit.data;
-    const search = (pageNo) => c.post(null, 'search', { query: ['*'], fq: ['TypeOfDocumentFacet:Event', `CalenderEventFacet:[${from} TO ${to}]`], queryid: 'NONE', sf: '*', includeFacets: false, pageNo, pageSize: 100, locale: 'fr' });
-    const r1 = failIfError(await search(1), 'Agenda');
-    let events = parseAgenda(r1, from, to);
-    for (let p = 2; p <= Math.min(r1.maxPageNo ?? 1, 4); p++) events = events.concat(parseAgenda(failIfError(await search(p), 'Agenda'), from, to));
-    const libraries = [...new Set(events.map((e) => e.library).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'fr'));
-    const data = { events, libraries, month: m, total: events.length, fetchedAt: new Date().toISOString() };
-    pastCache.set(key, { at: now, data });
-    return data;
-  };
-  if (month) return lookup(month);
-  // Sans mois précisé : le mois écoulé le plus récent qui contient plusieurs événements (jusqu'à 18 mois en arrière).
-  let m = cur;
-  for (let i = 0; i < 18; i++) {
-    const [y, mo] = m.split('-').map(Number); const d = new Date(Date.UTC(y, mo - 2, 1)); m = d.toISOString().slice(0, 7);
-    const data = await lookup(m); if (data.total >= 3) return data;
-  }
-  return { events: [], libraries: [], month: m, total: 0, fetchedAt: new Date().toISOString() };
-}
-const isoDay = (iso, n) => { const [y, m, d] = iso.split('-').map(Number); return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10); };
 
 const decodeHtml = (s) => s.replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#0?39;|&apos;/g, "'").replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)));
 export function htmlToText(h) {

@@ -309,4 +309,3 @@ body.is-locked > #lock{visibility:visible}
 .ag-dateRow{display:flex;align-items:center;justify-content:space-between;gap:8px}
 .ag-rm{border:0;background:none;color:var(--accent);font:inherit;font-size:.85rem;font-weight:600;padding:6px 0 0;text-decoration:underline}
 .next-event .rem-ev{display:grid;gap:2px;color:inherit;text-decoration:none}
-.ag-card.past{opacity:.85}
