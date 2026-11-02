@@ -1372,17 +1372,17 @@ function showMyEvents(body, status) {
     const go = el('button', 'secondary', '📅 Parcourir l’agenda'); go.onclick = () => { location.hash = '#espace/agenda'; }; body.append(go);
     if (!list.length) { body.append(emptyState('⭐', 'Aucun événement dans votre liste', 'Dans l’agenda, touchez l’étoile d’un événement pour l’ajouter. Il disparaît de la liste quand il est terminé.')); status.textContent = ''; return; }
     status.textContent = `${list.length} événement${list.length > 1 ? 's' : ''} à venir`;
-    let cur = '';
+    let cur = '', ul = null;
     for (const x of list) {
-      if (x.date !== cur) { cur = x.date; body.append(el('h3', 'ag-day', dayLabel(cur, today))); }
-      const li = el('div', 'card ag-card');
+      if (x.date !== cur) { cur = x.date; body.append(el('h3', 'ag-day', dayLabel(cur, today))); ul = el('ul', 'cards'); body.append(ul); }
+      const li = el('li', 'card ag-card');
       if (x.image) { const im = el('img', 'ag-thumb'); im.alt = ''; im.loading = 'lazy'; im.referrerPolicy = 'no-referrer'; im.src = x.image; im.onerror = () => im.remove(); li.append(im); }
       const t = el('div', 'ag-body');
       const h = el('h3'); const a = el('a', 'doc-link', x.title); a.href = '#espace'; a.onclick = (ev) => { ev.preventDefault(); showAgendaEvent(body, status, x, draw, today); }; h.append(a);
       t.append(h, el('p', 'ag-meta', [x.hour && (x.end ? `${x.hour}–${x.end}` : x.hour), x.library].filter(Boolean).join(' · ')));
       const ka = [x.kind, x.audience].filter(Boolean).join(' · '); if (ka) t.append(el('p', 'ag-ka', ka));
       const rm = el('button', 'ag-rm', 'Retirer de ma liste'); rm.onclick = () => { agToggle(x, x.date); draw(); }; t.append(rm);
-      li.append(t); body.append(li);
+      li.append(t); ul.append(li);
     }
   };
   draw();
