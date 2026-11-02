@@ -1378,16 +1378,18 @@ async function showAgenda(body, status) {
     const wd = isoUTC(today).getUTCDay(); const sat = isoAdd(today, wd === 0 ? 0 : 6 - wd);
     const PERIODS = [['all', 'Tout'], ['today', 'Aujourd’hui'], ['tomorrow', 'Demain'], ['weekend', 'Ce week-end'], ['week', '7 jours'], ['month', '30 jours']];
     for (const [k, l] of PERIODS) { const c = el('button', 'fchip' + (F.period === k ? ' on' : ''), l); c.onclick = () => { F.period = k; F.day = ''; F.days = 14; draw(); }; r1.append(c); }
-    const di = el('input', 'fsel'); di.type = 'date'; di.min = today; di.value = F.day; di.title = 'Un jour précis'; di.setAttribute('aria-label', 'Un jour précis');
+    const fld = (label, ctl) => { const w = el('label', 'ag-fld'); w.append(el('span', '', label), ctl); return w; };
+    const di = el('input', 'fsel'); di.type = 'date'; di.min = today; di.value = F.day;
     di.onchange = () => { F.day = di.value; F.period = di.value ? 'day' : 'all'; F.days = 14; draw(); };
     const sel = (label, value, opts, fn) => { const x = el('select', 'fsel'); x.append(new Option(label, '')); for (const o of opts) x.append(new Option(o, o)); x.value = value; x.onchange = () => fn(x.value); return x; };
-    r2.append(di, sel('Toutes les bibliothèques', F.lib, data.libraries, (v) => { F.lib = v; F.days = 14; draw(); }));
     const deps = [...data.departments.map((d) => d.name), 'Autres'];
-    r2.append(sel('Tous les publics et pôles', F.dep, deps, (v) => { F.dep = v; F.days = 14; draw(); }));
-    const q = el('input', 'fsel'); q.type = 'search'; q.placeholder = 'Rechercher un événement…'; q.value = F.q; q.setAttribute('aria-label', 'Rechercher un événement');
+    const q = el('input', 'fsel'); q.type = 'search'; q.placeholder = 'Titre, lieu, mot-clé…'; q.value = F.q;
     q.onkeydown = (e) => { if (e.key === 'Enter') { F.q = q.value.trim(); F.days = 14; draw(); } };
     q.onchange = () => { F.q = q.value.trim(); F.days = 14; draw(); };
-    bar.append(r1, r2, q); body.append(bar);
+    r2.className = 'ag-form';
+    r2.append(fld('📅 Choisir un jour précis', di), fld('🏛️ Bibliothèque', sel('Toutes les bibliothèques', F.lib, data.libraries, (v) => { F.lib = v; F.days = 14; draw(); })), fld('👥 Public ou pôle', sel('Tous les publics et pôles', F.dep, deps, (v) => { F.dep = v; F.days = 14; draw(); })), fld('🔎 Recherche', q));
+    if (F.day) { const x = el('button', 'fchip', `Jour choisi : ${dayLabel(F.day, today)} ✕`); x.onclick = () => { F.day = ''; F.period = 'all'; draw(); }; r1.append(x); }
+    bar.append(r1, r2); body.append(bar);
 
     const [from, to] = F.period === 'today' ? [today, today] : F.period === 'tomorrow' ? [isoAdd(today, 1), isoAdd(today, 1)] : F.period === 'weekend' ? [wd === 0 ? today : sat, wd === 0 ? today : isoAdd(sat, 1)] : F.period === 'week' ? [today, isoAdd(today, 6)] : F.period === 'month' ? [today, isoAdd(today, 29)] : F.period === 'day' && F.day ? [F.day, F.day] : [today, '9999-12-31'];
     const nq = agNorm(F.q);

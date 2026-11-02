@@ -298,3 +298,8 @@ body.is-locked > #lock{visibility:visible}
 .ag-pad{padding:14px}.ag-title{margin:0 0 10px;font-size:1.2rem}
 .ag-rows{display:grid;grid-template-columns:auto 1fr;gap:6px 12px;margin:0 0 12px}.ag-rows dt{font-weight:700}.ag-rows dd{margin:0;text-align:left;word-break:break-word}.ag-rows dd a{display:block}
 .ag-desc{margin:8px 0;line-height:1.45;white-space:pre-line}
+.ag-form{display:grid!important;grid-template-columns:1fr;gap:10px}
+.ag-fld{display:grid;gap:4px;font-size:.82rem;font-weight:700;color:var(--muted)}
+.ag-fld .fsel{width:100%;max-width:none;min-width:0;box-sizing:border-box;font-size:1rem;font-weight:400;color:var(--fg);min-height:44px;-webkit-appearance:none;appearance:none}
+.ag-fld input[type=date]{text-align:left}
+.ag-fld select.fsel{background-image:linear-gradient(45deg,transparent 50%,currentColor 50%),linear-gradient(135deg,currentColor 50%,transparent 50%);background-position:calc(100% - 20px) 55%,calc(100% - 14px) 55%;background-size:6px 6px;background-repeat:no-repeat;padding-right:34px}
