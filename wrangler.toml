@@ -9,3 +9,13 @@ ALLOWED_ORIGIN = "https://toolsmaker2099.github.io"
 # Exécute le relais près du portail de la BMVR : chaque lecture enchaîne 3 à 4 appels vers lui, donc la distance compte.
 [placement]
 mode = "smart"
+
+# --- Notifications téléphone (optionnelles) ---
+# Contrôle des abonnés toutes les 30 minutes (sans effet tant que le stockage et les secrets ci-dessous ne sont pas configurés).
+[triggers]
+crons = ["*/30 * * * *"]
+
+# À activer après avoir créé l'espace de stockage (Cloudflare → Storage & Databases → KV → Create) : remplacer l'identifiant puis retirer les « # ».
+# [[kv_namespaces]]
+# binding = "NOTIF"
+# id = "IDENTIFIANT_DU_KV"

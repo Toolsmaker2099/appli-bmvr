@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex">
+<title>Clés des notifications</title>
+<style>:root{--bg:#f6f2ea;--fg:#1d2a30;--card:#fff;--line:#e5ddcf;--accent:#1f4e5f}@media(prefers-color-scheme:dark){:root{--bg:#0f181c;--fg:#eee9df;--card:#18252b;--line:#2b3b43;--accent:#7fb7c9}}
+body{margin:0;background:var(--bg);color:var(--fg);font:16px/1.5 system-ui,sans-serif;padding:16px;max-width:640px;margin-inline:auto}
+h1{font-size:1.3rem}.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;margin:12px 0}
+code{display:block;word-break:break-all;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px;margin:6px 0;user-select:all}
+button{font:inherit;padding:10px 16px;border-radius:12px;border:0;background:var(--accent);color:var(--bg);font-weight:700}small{opacity:.75}</style></head>
+<body>
+<h1>🔑 Clés des notifications</h1>
+<p>Cette page fabrique, <strong>sur votre appareil seulement</strong>, les trois valeurs à coller dans Cloudflare pour activer les notifications. Rien n'est envoyé nulle part. Ne les partagez avec personne (ni dans une conversation).</p>
+<button id="go">Générer les clés</button>
+<div id="out" hidden>
+<div class="card"><strong>VAPID_PUBLIC</strong><code id="pub"></code><small>Valeur publique (nom de la variable : <b>VAPID_PUBLIC</b>).</small></div>
+<div class="card"><strong>VAPID_PRIVATE</strong><code id="priv"></code><small>Secret. À coller comme « Secret » dans Cloudflare.</small></div>
+<div class="card"><strong>NOTIF_KEY</strong><code id="key"></code><small>Secret. Chiffre les identifiants au repos. Si vous la perdez, il faudra réactiver les notifications.</small></div>
+<p><small>Dans Cloudflare : Workers &amp; Pages → appli-bmvr-relais → Settings → Variables and Secrets → Add : type « Secret » pour les trois. Générez une seule fois : en générer de nouvelles invalide les abonnements existants.</small></p>
+</div>
+<script>
+const b64u=(b)=>{let s='';for(const x of new Uint8Array(b))s+=String.fromCharCode(x);return btoa(s).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'')};
+document.getElementById('go').onclick=async()=>{
+  const k=await crypto.subtle.generateKey({name:'ECDSA',namedCurve:'P-256'},true,['sign','verify']);
+  const jwk=await crypto.subtle.exportKey('jwk',k.privateKey);
+  const raw=await crypto.subtle.exportKey('raw',k.publicKey);
+  document.getElementById('pub').textContent=b64u(raw);
+  document.getElementById('priv').textContent=jwk.d;
+  document.getElementById('key').textContent=b64u(crypto.getRandomValues(new Uint8Array(32)));
+  document.getElementById('out').hidden=false;
+};
+</script></body></html>

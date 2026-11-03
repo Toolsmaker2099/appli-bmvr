@@ -5,7 +5,7 @@ const $ = (id) => document.getElementById(id);
 const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
 // Plusieurs comptes sur le même appareil : chaque compte a ses propres identifiants et ses propres copies de données.
 // Les clés « par compte » sont rangées sous p:<id>:<clé> ; 'profiles' liste les comptes et 'active' donne le compte courant.
-const PER = new Set(['svcPins', 'svcCache', 'user', 'pass', 'cache', 'resaCache', 'msgCache', 'seenMsgs', 'pickup', 'lastTrace', 'agendaList']);
+const PER = new Set(['svcPins', 'svcCache', 'user', 'pass', 'cache', 'resaCache', 'msgCache', 'seenMsgs', 'pickup', 'lastTrace', 'agendaList', 'notifOn']);
 const raw = {
   get: (k) => { try { return localStorage.getItem(k) || ''; } catch { return ''; } },
   set: (k, v) => { try { localStorage.setItem(k, v); } catch {} },
@@ -49,7 +49,7 @@ async function pinHash(id, pin) { const b = await crypto.subtle.digest('SHA-256'
 const unlockedId = () => { try { return sessionStorage.getItem('unlocked') || ''; } catch { return ''; } };
 const setUnlocked = (id) => { try { if (id) sessionStorage.setItem('unlocked', id); else sessionStorage.removeItem('unlocked'); } catch {} };
 const isLocked = () => { const p = curProfile(); return !!(p?.pin && unlockedId() !== p.id); };
-const WRITE_PATHS = ['/renew', '/renew-many', '/reserve', '/cancel', '/delete-message'];
+const WRITE_PATHS = ['/renew', '/renew-many', '/reserve', '/cancel', '/delete-message', '/notif-subscribe', '/notif-update', '/notif-unsubscribe', '/notif-test'];
 function guard(path, extra = {}) {
   if (isLocked()) throw new Error('Application verrouillée : saisissez le code.');
   if (!isRestricted()) return;
@@ -1446,9 +1446,9 @@ function agList() {
 const agHas = (id, date) => agList().some((x) => agKey(x) === `${id}|${date}`);
 function agToggle(e, date) {
   const list = agList(); const k = `${e.id}|${date}`;
-  if (list.some((x) => agKey(x) === k)) { store.set('agendaList', JSON.stringify(list.filter((x) => agKey(x) !== k))); return false; }
+  if (list.some((x) => agKey(x) === k)) { store.set('agendaList', JSON.stringify(list.filter((x) => agKey(x) !== k))); syncNotifEvents(); return false; }
   list.push({ id: e.id, date, title: e.title, library: e.library || '', hour: e.hour || '', end: e.endHour || e.end || '', kind: e.kind || '', audience: e.audience || '', image: e.image || '' });
-  store.set('agendaList', JSON.stringify(list)); return true;
+  store.set('agendaList', JSON.stringify(list)); syncNotifEvents(); return true;
 }
 function starBtn(e, date, onChange) {
   const b = el('button', 'ag-star'); const paint = () => { const on = agHas(e.id, date); b.textContent = on ? '★' : '☆'; b.classList.toggle('on', on); b.title = b.ariaLabel = on ? 'Retirer de ma liste' : 'Ajouter à ma liste'; };
@@ -1727,6 +1727,7 @@ function renderAccount() {
     else if (!addingAccount) for (const pr of [...list].sort((a, b) => (b.id === activeId()) - (a.id === activeId()))) box.append(accessPanel(pr));
     if (!addingAccount && !isRestricted()) { const add = el('button', 'secondary', '➕ Ajouter un autre compte'); add.onclick = () => { addingAccount = true; renderAccount(); }; box.append(add); }
   }
+  if (on && !addingAccount) notifPanel().then((c) => { if (c && !box.querySelector('.notif')) box.append(c); });
   $('diag').hidden = !on; $('diagSearch').hidden = !on; $('diagMars').hidden = !on;
   $('reset').hidden = isRestricted();
   if (isRestricted()) { addingAccount = false; $('loginBox').hidden = on; }
@@ -1808,6 +1809,75 @@ if ('serviceWorker' in navigator) {
 updateBadge();
 updateEspaceBadge();
 // Réglages d'accès du compte actif : complet ou restreint, code à 4 chiffres.
+
+// ---------- notifications téléphone (Web Push, optionnelles) ----------
+let notifCfg;
+async function notifConfig() {
+  if (notifCfg !== undefined) return notifCfg;
+  try { const r = await fetch(RELAY + '/notif-config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }); notifCfg = r.ok ? await r.json() : { enabled: false }; } catch { notifCfg = { enabled: false }; }
+  return notifCfg;
+}
+const notifSupported = () => 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+const isIOS = () => /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const isStandalone = () => window.matchMedia?.('(display-mode: standalone)').matches || navigator.standalone === true;
+async function pushSub() { const reg = await navigator.serviceWorker.ready; return reg.pushManager.getSubscription(); }
+let syncTimer;
+function syncNotifEvents() {
+  if (store.get('notifOn') !== '1' || !notifSupported()) return;
+  clearTimeout(syncTimer);
+  syncTimer = setTimeout(async () => { try { const sub = await pushSub(); if (sub) await call('/notif-update', { endpoint: sub.endpoint, events: agList() }); } catch { /* sera resynchronisé plus tard */ } }, 1500);
+}
+const urlB64 = (b) => { const t = (b + '='.repeat((4 - (b.length % 4)) % 4)).replace(/-/g, '+').replace(/_/g, '/'); const r = atob(t); return Uint8Array.from(r, (c) => c.charCodeAt(0)); };
+const NOTIF_TYPES = [['loans', '📚 Prêts à rendre (3 jours avant, veille, jour J, retard)'], ['resa', '🔖 Réservations (à retirer, rang qui avance)'], ['messages', '✉️ Nouveaux messages de la bibliothèque'], ['events', '📅 Événements de « Mes événements » (veille, 2 h avant)']];
+async function notifPanel() {
+  const cfg = await notifConfig();
+  if (!cfg.enabled || isRestricted()) return null;
+  const card = el('div', 'card access notif'); card.append(el('h4', '', '🔔 Notifications'));
+  const msg = el('p', 'hint'); const box = el('div');
+  card.append(box, msg);
+  const draw = async () => {
+    box.replaceChildren(); msg.textContent = ''; msg.className = 'hint';
+    if (!notifSupported()) { box.append(el('p', 'hint', 'Ce navigateur ne gère pas les notifications.')); return; }
+    if (isIOS() && !isStandalone()) { box.append(el('p', 'hint', 'Sur iPhone, ajoutez d’abord l’appli à l’écran d’accueil (Partager → Sur l’écran d’accueil), puis rouvrez-la depuis l’icône.')); return; }
+    let sub = null, st = { subscribed: false };
+    try { sub = await pushSub(); if (sub) st = await call('/notif-status', { endpoint: sub.endpoint }); } catch (e) { msg.textContent = e.message; }
+    if (st.subscribed) {
+      store.set('notifOn', '1');
+      box.append(el('p', '', `✓ Activées pour ce compte (${st.user || ''}).`));
+      for (const [k, label] of NOTIF_TYPES) {
+        const lb = el('label', 'notif-opt'); const cb = el('input'); cb.type = 'checkbox'; cb.checked = st.prefs?.[k] !== false;
+        cb.onchange = async () => { try { const prefs = { ...st.prefs, [k]: cb.checked }; const r = await call('/notif-update', { endpoint: sub.endpoint, prefs, events: agList() }); st.prefs = r.prefs; } catch (e) { cb.checked = !cb.checked; msg.textContent = e.message; } };
+        lb.append(cb, el('span', '', label)); box.append(lb);
+      }
+      const row = el('div', 'btn-row');
+      const test = el('button', 'secondary small', 'Envoyer une notification de test'); test.onclick = async () => { test.disabled = true; try { const r = await call('/notif-test', { endpoint: sub.endpoint }); msg.textContent = r.ok ? 'Test envoyé : il doit arriver dans quelques secondes.' : 'Le test n’a pas pu être envoyé.'; } catch (e) { msg.textContent = e.message; } test.disabled = false; };
+      const off = el('button', 'secondary small danger', 'Désactiver et effacer mes données');
+      off.onclick = async () => {
+        if (!confirm('Désactiver les notifications ? Votre identifiant et votre mot de passe seront effacés du relais.')) return;
+        try { await call('/notif-unsubscribe', { endpoint: sub.endpoint }); await sub.unsubscribe(); store.del('notifOn'); draw(); msg.textContent = 'Notifications désactivées. Vos identifiants ont été effacés du relais.'; } catch (e) { msg.textContent = e.message; }
+      };
+      row.append(test, off); box.append(row);
+      return;
+    }
+    store.del('notifOn');
+    box.append(el('p', 'hint', st.other ? 'Les notifications de cet appareil sont liées à un autre compte. Vous pouvez les reprendre pour ce compte.' : 'Recevez une alerte sur ce téléphone, même appli fermée : réservation à retirer, prêt à rendre, nouveau message, événement de votre liste.'));
+    const on = el('button', 'primary small', st.other ? 'Activer pour ce compte' : 'Activer les notifications');
+    on.onclick = async () => {
+      if (!confirm('Pour vous prévenir même quand l’appli est fermée, le relais doit garder votre identifiant et votre mot de passe BMVR sur un serveur (chiffrés) et consulter votre compte toutes les 30 minutes.\n\nVous pouvez tout effacer à tout moment avec « Désactiver ». Activer les notifications ?')) return;
+      on.disabled = true; msg.textContent = 'Activation…';
+      try {
+        if ((await Notification.requestPermission()) !== 'granted') throw new Error('Autorisation refusée : autorisez les notifications pour ce site dans les réglages du navigateur.');
+        const reg = await navigator.serviceWorker.ready;
+        const ps = (await reg.pushManager.getSubscription()) || await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlB64(cfg.publicKey) });
+        await call('/notif-subscribe', { subscription: ps.toJSON(), prefs: { loans: true, resa: true, messages: true, events: true }, events: agList() });
+        store.set('notifOn', '1'); await draw();
+      } catch (e) { on.disabled = false; msg.textContent = e.message; }
+    };
+    box.append(on);
+  };
+  draw();
+  return card;
+}
 function accessPanel(pr) {
   const self = pr.id === activeId(); const card = el('div', 'card access');
   card.append(el('h4', '', self ? '🔐 Accès à ce compte' : '🔐 Accès de ' + pr.user));
@@ -1893,3 +1963,4 @@ new MutationObserver((muts) => { for (const m of muts) for (const n of m.addedNo
 
 renderLock();
 go();
+setTimeout(syncNotifEvents, 4000);

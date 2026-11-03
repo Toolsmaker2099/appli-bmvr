@@ -429,7 +429,7 @@ export function parseReservations(list) {
   });
 }
 
-export async function fetchReservations(creds, fetchFn = fetch, debug = false) {
+export async function fetchReservations(creds, fetchFn = fetch, debug = false, lean = false) {
   const { c, token } = await login(creds, fetchFn);
   let res, lastErr;
   for (const [path, params] of [['reservations', { locale: 'fr' }], ['accountPage', { type: 'reservations', pageNo: 1, pageSize: 100, locale: 'fr' }], ['reservations', {}]]) {
@@ -438,7 +438,7 @@ export async function fetchReservations(creds, fetchFn = fetch, debug = false) {
   if (!res) throw lastErr;
   const reservations = parseReservations(res);
   // Date de retour prévue : le plus proche retour parmi les exemplaires empruntés du document (comme « Où l'emprunter » en recherche).
-  await Promise.all(reservations.slice(0, 20).map(async (r) => {
+  if (!lean) await Promise.all(reservations.slice(0, 20).map(async (r) => {
     if (r.available || !r.coverId) return;
     try {
       const copies = parseCopies(failIfError(await c.get(token, 'notice', { id: r.coverId, locale: 'fr', aspect: 'Stock' }), 'Exemplaires'));

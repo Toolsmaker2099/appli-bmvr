@@ -30,3 +30,10 @@ La lecture des prêts reproduit les appels du portail sans avoir pu être testé
 
 ## Mises à jour
 L'appli se met à jour seule : à chaque ouverture (ou retour sur l'appli), elle cherche une nouvelle version et se recharge si elle en trouve une. Le numéro de version du cache est posé automatiquement à chaque publication (numéro du commit, via `__VERSION__` dans `public/sw.js` et `public/index.html`) : rien à incrémenter à la main.
+
+### 3. Notifications téléphone (optionnel)
+Inactives par défaut. Pour les activer :
+1. Cloudflare → Storage & Databases → KV → *Create* (nom libre, ex. `bmvr-notif`), copiez son **identifiant**.
+2. Dans `wrangler.toml`, décommentez le bloc `[[kv_namespaces]]` et collez l'identifiant (binding `NOTIF`).
+3. Ouvrez `https://toolsmaker2099.github.io/appli-bmvr/cles.html`, générez les clés (elles ne quittent pas votre appareil), puis ajoutez dans le relais (Settings → Variables and Secrets, type *Secret*) : `VAPID_PUBLIC`, `VAPID_PRIVATE`, `NOTIF_KEY`.
+4. Après le prochain déploiement, l'appli (onglet Compte) propose « Notifications ». Chaque personne active l'option elle-même ; ses identifiants BMVR sont alors gardés **chiffrés** (AES-GCM) et le relais consulte son compte toutes les 30 minutes (3 abonnés traités par passage, `NOTIF_BATCH` pour l'ajuster). « Désactiver » efface tout.

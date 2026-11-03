@@ -1,3 +1,4 @@
+import { status as pushStatus, subscribe as pushSubscribe, manage as pushManage, runChecks } from './push.js';
 import { fetchLoans, fetchServiceUrl, renewLoan, renewMany, fetchHours, fetchAgenda, fetchAgendaEvent, fetchDocExtra, fetchNouveautes, fetchServices, fetchDocuments, savedSearches, diagnose, fetchReservations, cancelReservation, searchCatalogue, reserveInfo, reserveRank, makeReservation, fetchAccount, deleteMessage, withSession, basketOp, fetchNotice, AuthError } from './portal.js';
 
 // Relais multi-utilisateurs sans état : l'appli envoie les identifiants BMVR de la personne à chaque requête (HTTPS),
@@ -23,7 +24,7 @@ export default {
     if (req.method === 'OPTIONS') return new Response(null, { status: ok ? 204 : 403, headers: cors });
 
     const url = new URL(req.url);
-    if (req.method !== 'POST' || !['/loans', '/service', '/renew', '/renew-many', '/horaires', '/agenda', '/agenda-event', '/doc-extra', '/nouveautes', '/services', '/documents', '/saved-searches', '/reservations', '/cancel', '/search', '/reserve-info', '/reserve-rank', '/reserve', '/account', '/delete-message', '/basket', '/notice'].includes(url.pathname)) return json({ error: 'introuvable' }, 404, cors);
+    if (req.method !== 'POST' || !['/loans', '/service', '/renew', '/renew-many', '/horaires', '/agenda', '/agenda-event', '/doc-extra', '/notif-config', '/notif-subscribe', '/notif-status', '/notif-update', '/notif-unsubscribe', '/notif-test', '/nouveautes', '/services', '/documents', '/saved-searches', '/reservations', '/cancel', '/search', '/reserve-info', '/reserve-rank', '/reserve', '/account', '/delete-message', '/basket', '/notice'].includes(url.pathname)) return json({ error: 'introuvable' }, 404, cors);
     if (!ok) return json({ error: 'origine non autorisée' }, 403, cors);
 
     // Limite de débit (par adresse, en mémoire de l'instance) : freine les abus sans rien stocker de durable.
@@ -32,6 +33,7 @@ export default {
 
     let body;
     try { body = await req.json(); } catch { return json({ error: 'requête invalide' }, 400, cors); }
+    if (url.pathname === '/notif-config') return json(pushStatus(env), 200, cors);
     const { username, password } = body || {};
     if (typeof username !== 'string' || typeof password !== 'string' || !username || !password || username.length > 100 || password.length > 200) {
       return json({ error: 'identifiant et mot de passe requis' }, 400, cors);
@@ -54,6 +56,8 @@ export default {
       if (url.pathname === '/nouveautes') return json(await fetchNouveautes(body), 200, cors);
       if (url.pathname === '/saved-searches') return json(await withSession(who, (w) => savedSearches(w, body)), 200, cors);
       if (url.pathname === '/agenda') return json(await fetchAgenda(), 200, cors);
+      if (url.pathname === '/notif-subscribe') return json(await pushSubscribe(env, body), 200, cors);
+      if (url.pathname.startsWith('/notif-')) return json(await pushManage(env, body, url.pathname.slice(7)), 200, cors);
       if (url.pathname === '/doc-extra') return json(await fetchDocExtra(body.id), 200, cors);
       if (url.pathname === '/agenda-event') return json(await fetchAgendaEvent(body.id), 200, cors);
       if (url.pathname === '/horaires') return json(await fetchHours(), 200, cors);
@@ -78,4 +82,6 @@ export default {
       return json({ error: e.message }, e instanceof AuthError ? 401 : 502, cors);
     }
   },
+  // Contrôle périodique des abonnés aux notifications (voir [triggers] dans wrangler.toml) ; sans effet tant que non configuré.
+  async scheduled(event, env, ctx) { ctx.waitUntil(runChecks(env)); },
 };
