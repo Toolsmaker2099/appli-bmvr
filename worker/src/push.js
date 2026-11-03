@@ -69,7 +69,9 @@ export function validSubscription(s) {
     return u.protocol === 'https:' && s.endpoint.length < 600 && HOSTS.some((h) => u.hostname === h || u.hostname.endsWith('.' + h)) && /^[A-Za-z0-9_-]{80,100}$/.test(s.keys?.p256dh ?? '') && /^[A-Za-z0-9_-]{16,32}$/.test(s.keys?.auth ?? '');
   } catch { return false; }
 }
-const idOf = async (endpoint) => b64u(await crypto.subtle.digest('SHA-256', enc.encode(endpoint))).slice(0, 32);
+// Un même téléphone (un abonnement) peut servir plusieurs comptes : l'enregistrement est identifié par l'abonnement ET le compte.
+const idOf = async (endpoint, username) => b64u(await crypto.subtle.digest('SHA-256', enc.encode(username == null ? endpoint : `${endpoint}\u0000${String(username).trim().toLowerCase()}`))).slice(0, 32);
+const cleanLabel = (v) => String(v ?? '').replace(/[\r\n]/g, ' ').trim().slice(0, 24);
 const DEFAULT_PREFS = { loans: true, resa: true, messages: true, events: true };
 const cleanPrefs = (p) => Object.fromEntries(Object.keys(DEFAULT_PREFS).map((k) => [k, p?.[k] === undefined ? DEFAULT_PREFS[k] : !!p[k]]));
 const cleanEvents = (list) => (Array.isArray(list) ? list : []).slice(0, 60).map((e) => ({ id: String(e?.id ?? '').slice(0, 80), date: String(e?.date ?? ''), title: String(e?.title ?? '').slice(0, 120), hour: /^\d{1,2}:\d{2}$/.test(e?.hour ?? '') ? e.hour : '', library: String(e?.library ?? '').slice(0, 80) })).filter((e) => e.id && /^\d{4}-\d{2}-\d{2}$/.test(e.date));
@@ -78,13 +80,22 @@ const addDays = (iso, n) => { const [y, m, d] = iso.split('-').map(Number); retu
 const dayDiff = (a, b) => Math.round((Date.parse(b + 'T00:00:00Z') - Date.parse(a + 'T00:00:00Z')) / 86400000);
 const same = (a, b) => { if (a.length !== b.length) return false; let r = 0; for (let i = 0; i < a.length; i++) r |= a.charCodeAt(i) ^ b.charCodeAt(i); return r === 0; };
 
+async function find(env, endpoint, username) {
+  const id = await idOf(endpoint, username); const rec = await load(env, id);
+  if (rec) return { id, rec };
+  // Reprise d'un enregistrement de la première version (identifié par l'abonnement seul).
+  const oldId = await idOf(endpoint); const old = await load(env, oldId);
+  if (old && await owner(env, old, { username, password: undefined, skipPassword: true })) { await env.NOTIF.delete(`sub:${oldId}`); await save(env, id, old); return { id, rec: old }; }
+  return { id, rec: null };
+}
 async function load(env, id) { const raw = await env.NOTIF.get(`sub:${id}`); return raw ? JSON.parse(raw) : null; }
 const save = (env, id, rec) => env.NOTIF.put(`sub:${id}`, JSON.stringify(rec), { metadata: { checkedAt: rec.checkedAt || 0 } });
 async function owner(env, rec, body) {
   if (!rec?.cred) return false;
-  try { const c = await unseal(env, rec.cred); return same(c.username, String(body.username)) && same(c.password, String(body.password)); } catch { return false; }
+  try { const c = await unseal(env, rec.cred); return same(c.username.trim().toLowerCase(), String(body.username).trim().toLowerCase()) && (body.skipPassword || same(c.password, String(body.password))); } catch { return false; }
 }
 
+const withLabel = (rec, title) => (rec.label ? `${title} · ${rec.label}` : title);
 export function status(env) { return configured(env) ? { enabled: true, publicKey: env.VAPID_PUBLIC } : { enabled: false }; }
 
 export async function subscribe(env, body) {
@@ -92,23 +103,23 @@ export async function subscribe(env, body) {
   if (!validSubscription(body.subscription ?? {})) throw new Error('Abonnement du téléphone invalide');
   await fetchLoans({ username: body.username, password: body.password }); // vérifie les identifiants (lève AuthError sinon)
   const sub = { endpoint: body.subscription.endpoint, keys: { p256dh: body.subscription.keys.p256dh, auth: body.subscription.keys.auth } };
-  const id = await idOf(sub.endpoint);
-  const rec = { sub, cred: await seal(env, { username: body.username, password: body.password }), user: String(body.username).slice(0, 40).replace(/.(?=.{4})/g, '•'), prefs: cleanPrefs(body.prefs), events: cleanEvents(body.events), state: null, checkedAt: 0, fails: 0, created: Date.now() };
+  const id = await idOf(sub.endpoint, body.username);
+  const rec = { label: cleanLabel(body.label),  sub, cred: await seal(env, { username: body.username, password: body.password }), user: String(body.username).slice(0, 40).replace(/.(?=.{4})/g, '•'), prefs: cleanPrefs(body.prefs), events: cleanEvents(body.events), state: null, checkedAt: 0, fails: 0, created: Date.now() };
   await save(env, id, rec);
-  await sendPush(env, sub, { title: 'Notifications activées', body: 'Vous serez prévenu ici des retours, réservations et événements.', tag: 'welcome', url: '#accueil' });
+  await sendPush(env, sub, { title: withLabel(rec, 'Notifications activées'), body: 'Vous serez prévenu ici des retours, réservations et événements.', tag: 'welcome', url: '#accueil' });
   return { ok: true, prefs: rec.prefs };
 }
 export async function manage(env, body, action) {
   if (!configured(env)) throw new Error('Notifications non configurées sur le relais');
   const endpoint = String(body.endpoint ?? '');
   if (!endpoint) throw new Error('Abonnement manquant');
-  const id = await idOf(endpoint); const rec = await load(env, id);
+  const { id, rec } = await find(env, endpoint, body.username);
   if (!rec) return action === 'status' ? { subscribed: false } : action === 'unsubscribe' ? { ok: true } : (() => { throw new Error('Notifications non activées sur cet appareil'); })();
-  if (!(await owner(env, rec, body))) { if (action === 'status') return { subscribed: false, other: true }; throw new Error('Ces notifications appartiennent à un autre compte'); }
+  if (!(await owner(env, rec, body))) { if (action === 'status') return { subscribed: false }; throw new Error('Identifiants incorrects pour ces notifications'); }
   if (action === 'unsubscribe') { await env.NOTIF.delete(`sub:${id}`); return { ok: true }; }
   if (action === 'status') return { subscribed: true, prefs: rec.prefs, user: rec.user };
-  if (action === 'test') { const r = await sendPush(env, rec.sub, { title: 'Notification de test', body: 'Tout fonctionne : vous recevrez vos alertes ici.', tag: 'test', url: '#accueil' }); if (r === 'gone') await env.NOTIF.delete(`sub:${id}`); return { ok: r === 'ok' }; }
-  if (action === 'update') { if (body.prefs) rec.prefs = cleanPrefs(body.prefs); if (body.events) rec.events = cleanEvents(body.events); await save(env, id, rec); return { ok: true, prefs: rec.prefs }; }
+  if (action === 'test') { const r = await sendPush(env, rec.sub, { title: withLabel(rec, 'Notification de test'), body: 'Tout fonctionne : vous recevrez vos alertes ici.', tag: 'test', url: '#accueil' }); if (r === 'gone') await env.NOTIF.delete(`sub:${id}`); return { ok: r === 'ok' }; }
+  if (action === 'update') { if (body.label !== undefined) rec.label = cleanLabel(body.label); if (body.prefs) rec.prefs = cleanPrefs(body.prefs); if (body.events) rec.events = cleanEvents(body.events); await save(env, id, rec); return { ok: true, prefs: rec.prefs }; }
   throw new Error('Action inconnue');
 }
 
@@ -178,7 +189,7 @@ async function checkOne(env, id, rec, now) {
   if (!prefs.resa) state.resa = rec.state?.resa ?? {};
   if (!prefs.messages) state.msgSeen = rec.state?.msgSeen ?? [];
   rec.state = state; rec.events = events; rec.checkedAt = now;
-  for (const n of notes) { if ((await sendPush(env, rec.sub, n)) === 'gone') { await env.NOTIF.delete(`sub:${id}`); return; } }
+  for (const n of notes) { if ((await sendPush(env, rec.sub, { ...n, title: withLabel(rec, n.title) })) === 'gone') { await env.NOTIF.delete(`sub:${id}`); return; } }
   await save(env, id, rec);
 }
 

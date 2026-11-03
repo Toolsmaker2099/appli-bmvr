@@ -319,3 +319,4 @@ body.is-locked > #lock{visibility:visible}
 #loginBox label{position:relative}.pw-eye{position:absolute;right:8px;bottom:6px;border:0;background:transparent;font-size:1.2rem;padding:6px;min-width:40px;min-height:40px}
 #loginBox #pass{padding-right:52px}
 .notif-opt{display:flex;align-items:flex-start;gap:10px;margin:8px 0;font-size:.92rem}.notif-opt input{margin-top:3px;width:20px;height:20px;flex:none}
+.others{margin:12px 0}.acc-sum{cursor:pointer;font-weight:700;padding:10px 4px;color:var(--accent)}.others .card{margin-top:8px}

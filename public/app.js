@@ -1724,7 +1724,11 @@ function renderAccount() {
     }
     box.append(ul);
     if (isRestricted()) box.append(el('p', 'hint', '🔒 Compte à accès restreint : seul un compte à accès complet peut ajouter, modifier ou retirer des comptes.'));
-    else if (!addingAccount) for (const pr of [...list].sort((a, b) => (b.id === activeId()) - (a.id === activeId()))) box.append(accessPanel(pr));
+    else if (!addingAccount) {
+      const act = list.find((x) => x.id === activeId()); if (act) box.append(accessPanel(act));
+      const others = list.filter((x) => x.id !== activeId());
+      if (others.length) { const d = el('details', 'others'); d.append(el('summary', 'acc-sum', `Gérer l’accès des autres comptes (${others.length})`)); for (const pr of others) d.append(accessPanel(pr)); box.append(d); }
+    }
     if (!addingAccount && !isRestricted()) { const add = el('button', 'secondary', '➕ Ajouter un autre compte'); add.onclick = () => { addingAccount = true; renderAccount(); }; box.append(add); }
   }
   if (on && !addingAccount) notifPanel().then((c) => { if (c && !box.querySelector('.notif')) box.append(c); });
@@ -1825,14 +1829,16 @@ let syncTimer;
 function syncNotifEvents() {
   if (store.get('notifOn') !== '1' || !notifSupported()) return;
   clearTimeout(syncTimer);
-  syncTimer = setTimeout(async () => { try { const sub = await pushSub(); if (sub) await call('/notif-update', { endpoint: sub.endpoint, events: agList() }); } catch { /* sera resynchronisé plus tard */ } }, 1500);
+  syncTimer = setTimeout(async () => { try { const sub = await pushSub(); if (sub) await call('/notif-update', { endpoint: sub.endpoint, events: agList(), label: notifLabel() }); } catch { /* sera resynchronisé plus tard */ } }, 1500);
 }
 const urlB64 = (b) => { const t = (b + '='.repeat((4 - (b.length % 4)) % 4)).replace(/-/g, '+').replace(/_/g, '/'); const r = atob(t); return Uint8Array.from(r, (c) => c.charCodeAt(0)); };
+// Plusieurs comptes sur un même téléphone : le nom du compte est ajouté au titre des notifications pour savoir de qui il s'agit.
+const notifLabel = () => (getProfiles().length > 1 ? String(store.get('user') || '').split('@')[0].slice(0, 20) : '');
 const NOTIF_TYPES = [['loans', '📚 Prêts à rendre (3 jours avant, veille, jour J, retard)'], ['resa', '🔖 Réservations (à retirer, rang qui avance)'], ['messages', '✉️ Nouveaux messages de la bibliothèque'], ['events', '📅 Événements de « Mes événements » (la veille, le matin même)']];
 async function notifPanel() {
   const cfg = await notifConfig();
   if (!cfg.enabled || isRestricted()) return null;
-  const card = el('div', 'card access notif'); card.append(el('h4', '', '🔔 Notifications'));
+  const card = el('div', 'card access notif'); card.append(el('h4', '', `🔔 Notifications de ${store.get('user') || 'ce compte'}`));
   const msg = el('p', 'hint'); const box = el('div');
   card.append(box, msg);
   const draw = async () => {
@@ -1843,10 +1849,10 @@ async function notifPanel() {
     try { sub = await pushSub(); if (sub) st = await call('/notif-status', { endpoint: sub.endpoint }); } catch (e) { msg.textContent = e.message; }
     if (st.subscribed) {
       store.set('notifOn', '1');
-      box.append(el('p', '', `✓ Activées pour ce compte (${st.user || ''}).`));
+      box.append(el('p', '', `✓ Activées pour ${store.get('user') || 'ce compte'}.`));
       for (const [k, label] of NOTIF_TYPES) {
         const lb = el('label', 'notif-opt'); const cb = el('input'); cb.type = 'checkbox'; cb.checked = st.prefs?.[k] !== false;
-        cb.onchange = async () => { try { const prefs = { ...st.prefs, [k]: cb.checked }; const r = await call('/notif-update', { endpoint: sub.endpoint, prefs, events: agList() }); st.prefs = r.prefs; } catch (e) { cb.checked = !cb.checked; msg.textContent = e.message; } };
+        cb.onchange = async () => { try { const prefs = { ...st.prefs, [k]: cb.checked }; const r = await call('/notif-update', { endpoint: sub.endpoint, prefs, events: agList(), label: notifLabel() }); st.prefs = r.prefs; } catch (e) { cb.checked = !cb.checked; msg.textContent = e.message; } };
         lb.append(cb, el('span', '', label)); box.append(lb);
       }
       const row = el('div', 'btn-row');
@@ -1854,14 +1860,14 @@ async function notifPanel() {
       const off = el('button', 'secondary small danger', 'Désactiver et effacer mes données');
       off.onclick = async () => {
         if (!confirm('Désactiver les notifications ? Votre identifiant et votre mot de passe seront effacés du relais.')) return;
-        try { await call('/notif-unsubscribe', { endpoint: sub.endpoint }); await sub.unsubscribe(); store.del('notifOn'); draw(); msg.textContent = 'Notifications désactivées. Vos identifiants ont été effacés du relais.'; } catch (e) { msg.textContent = e.message; }
+        try { await call('/notif-unsubscribe', { endpoint: sub.endpoint }); store.del('notifOn'); if (!getProfiles().some((p) => raw.get(`p:${p.id}:notifOn`) === '1')) await sub.unsubscribe(); draw(); msg.textContent = 'Notifications désactivées. Vos identifiants ont été effacés du relais.'; } catch (e) { msg.textContent = e.message; }
       };
       row.append(test, off); box.append(row);
       return;
     }
     store.del('notifOn');
-    box.append(el('p', 'hint', st.other ? 'Les notifications de cet appareil sont liées à un autre compte. Vous pouvez les reprendre pour ce compte.' : 'Recevez une alerte sur ce téléphone, même appli fermée : réservation à retirer, prêt à rendre, nouveau message, événement de votre liste (vérifié toutes les 3 heures environ).'));
-    const on = el('button', 'primary small', st.other ? 'Activer pour ce compte' : 'Activer les notifications');
+    box.append(el('p', 'hint', 'Recevez une alerte sur ce téléphone, même appli fermée : réservation à retirer, prêt à rendre, nouveau message, événement de votre liste (vérifié toutes les 3 heures environ).'));
+    const on = el('button', 'primary small', 'Activer pour ce compte');
     on.onclick = async () => {
       if (!confirm('Pour vous prévenir même quand l’appli est fermée, le relais doit garder votre identifiant et votre mot de passe BMVR sur un serveur (chiffrés) et consulter votre compte quelques fois par jour (toutes les 3 heures environ, jamais la nuit).\n\nVous pouvez tout effacer à tout moment avec « Désactiver ». Activer les notifications ?')) return;
       on.disabled = true; msg.textContent = 'Activation…';
@@ -1869,7 +1875,7 @@ async function notifPanel() {
         if ((await Notification.requestPermission()) !== 'granted') throw new Error('Autorisation refusée : autorisez les notifications pour ce site dans les réglages du navigateur.');
         const reg = await navigator.serviceWorker.ready;
         const ps = (await reg.pushManager.getSubscription()) || await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlB64(cfg.publicKey) });
-        await call('/notif-subscribe', { subscription: ps.toJSON(), prefs: { loans: true, resa: true, messages: true, events: true }, events: agList() });
+        await call('/notif-subscribe', { subscription: ps.toJSON(), prefs: { loans: true, resa: true, messages: true, events: true }, events: agList(), label: notifLabel() });
         store.set('notifOn', '1'); await draw();
       } catch (e) { on.disabled = false; msg.textContent = e.message; }
     };

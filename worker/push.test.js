@@ -70,19 +70,24 @@ test('sans configuration, la fonction est désactivée', () => {
   assert.deepEqual(status({}), { enabled: false });
 });
 
-test('gestion : refus pour un autre compte, effacement pour le bon', async () => {
+test('gestion : un téléphone, plusieurs comptes ; refus des mauvais identifiants ; effacement ; reprise de l\'ancien format', async () => {
   const store = new Map();
   const env = { NOTIF_KEY: b64u(crypto.getRandomValues(new Uint8Array(32))), VAPID_PUBLIC: 'x', VAPID_PRIVATE: 'y', NOTIF: { get: async (k) => store.get(k) ?? null, put: async (k, v) => { store.set(k, v); }, delete: async (k) => { store.delete(k); } } };
   const endpoint = 'https://fcm.googleapis.com/fcm/send/abc';
-  const id = b64u(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(endpoint))).slice(0, 32);
-  store.set(`sub:${id}`, JSON.stringify({ cred: await seal(env, { username: 'u1', password: 'p1' }), prefs: {}, events: [], user: '••u1' }));
-  assert.deepEqual(await manage(env, { endpoint, username: 'u1', password: 'bad' }, 'status'), { subscribed: false, other: true });
-  await assert.rejects(() => manage(env, { endpoint, username: 'u2', password: 'p1' }, 'unsubscribe'));
+  const h = async (str) => b64u(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str))).slice(0, 32);
+  const idNew = await h(`${endpoint}\u0000u1`);
+  store.set(`sub:${idNew}`, JSON.stringify({ cred: await seal(env, { username: 'u1', password: 'p1' }), prefs: {}, events: [], user: '••u1' }));
+  assert.equal((await manage(env, { endpoint, username: 'u1', password: 'bad' }, 'status')).subscribed, false);
+  assert.equal((await manage(env, { endpoint, username: 'u2', password: 'p2' }, 'status')).subscribed, false); // autre compte du même téléphone
+  await assert.rejects(() => manage(env, { endpoint, username: 'u1', password: 'bad' }, 'unsubscribe'));
   assert.equal((await manage(env, { endpoint, username: 'u1', password: 'p1' }, 'status')).subscribed, true);
   await manage(env, { endpoint, username: 'u1', password: 'p1' }, 'unsubscribe');
   assert.equal(store.size, 0);
+  // ancien format : identifié par l'abonnement seul
+  store.set(`sub:${await h(endpoint)}`, JSON.stringify({ cred: await seal(env, { username: 'u1', password: 'p1' }), prefs: {}, events: [] }));
+  assert.equal((await manage(env, { endpoint, username: 'u1', password: 'p1' }, 'status')).subscribed, true);
+  assert.ok(store.has(`sub:${idNew}`) && !store.has(`sub:${await h(endpoint)}`));
 });
-
 test('contrôle : pas la nuit, et pas avant la fin de l\'intervalle', async () => {
   const { runChecks } = await import('./src/push.js');
   let listed = 0;
