@@ -16,7 +16,7 @@ mode = "smart"
 [triggers]
 crons = ["5 * * * *"]
 
-# À activer après avoir créé l'espace de stockage (Cloudflare → Storage & Databases → KV → Create) : remplacer l'identifiant puis retirer les « # ».
-# [[kv_namespaces]]
-# binding = "NOTIF"
-# id = "IDENTIFIANT_DU_KV"
+# Espace de stockage KV « bmvr-notifs » (Cloudflare → Storage & Databases → KV).
+[[kv_namespaces]]
+binding = "NOTIF"
+id = "682203f4de21416caf51b772156d642d"

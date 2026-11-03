@@ -34,6 +34,6 @@ L'appli se met à jour seule : à chaque ouverture (ou retour sur l'appli), elle
 ### 3. Notifications téléphone (optionnel)
 Inactives par défaut. Pour les activer :
 1. Cloudflare → Storage & Databases → KV → *Create* (nom libre, ex. `bmvr-notif`), copiez son **identifiant**.
-2. Dans `wrangler.toml`, décommentez le bloc `[[kv_namespaces]]` et collez l'identifiant (binding `NOTIF`).
+2. Dans `wrangler.toml`, le bloc `[[kv_namespaces]]` (binding `NOTIF`) porte l'identifiant du KV.
 3. Ouvrez `https://toolsmaker2099.github.io/appli-bmvr/cles.html`, générez les clés (elles ne quittent pas votre appareil), puis ajoutez dans le relais (Settings → Variables and Secrets, type *Secret*) : `VAPID_PUBLIC`, `VAPID_PRIVATE`, `NOTIF_KEY`.
 4. Après le prochain déploiement, l'appli (onglet Compte) propose « Notifications ». Chaque personne active l'option elle-même ; ses identifiants BMVR sont alors gardés **chiffrés** (AES-GCM) et le relais consulte son compte toutes les 3 heures environ, jamais entre 22 h et 7 h (`NOTIF_EVERY_MIN` pour ajuster, en minutes ; 3 abonnés traités par passage, `NOTIF_BATCH`). « Désactiver » efface tout.
