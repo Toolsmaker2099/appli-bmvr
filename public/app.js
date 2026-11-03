@@ -1732,6 +1732,7 @@ function renderAccount() {
   if (isRestricted()) { addingAccount = false; $('loginBox').hidden = on; }
 }
 
+{ const pi = $('pass'); if (pi && !$('passEye')) { const b = el('button', 'pw-eye', '👁️'); b.id = 'passEye'; b.type = 'button'; b.title = b.ariaLabel = 'Afficher le mot de passe'; b.onclick = () => { const on = pi.type === 'password'; pi.type = on ? 'text' : 'password'; b.textContent = on ? '🙈' : '👁️'; }; pi.parentElement.append(b); } }
 $('save').onclick = () => {
   if (isRestricted()) { $('err').textContent = 'Accès restreint : impossible d’ajouter un compte.'; return; }
   const u = $('user').value.trim(), p = $('pass').value;
@@ -1830,6 +1831,16 @@ function accessPanel(pr) {
     del.onclick = async () => { if (!await askCurrentPin(pr, msg, cur)) return; patchProfile(pr.id, { pin: '' }); if (self) setUnlocked(''); renderAccount(); };
     card.append(del);
   }
+  // Voir le mot de passe BMVR enregistré sur cet appareil (code du compte demandé s'il y en a un ; masqué après 15 s).
+  const pw = el('div', 'pw-row'); const show = el('button', 'secondary small', '👁️ Voir le mot de passe'); const val = el('code', 'pw-val'); val.hidden = true;
+  show.onclick = async () => {
+    if (!val.hidden) { val.hidden = true; val.textContent = ''; show.textContent = '👁️ Voir le mot de passe'; return; }
+    if (pr.pin) { const v = prompt(`Code à 4 chiffres de ${pr.user} :`) || ''; if (!/^\d{4}$/.test(v) || await pinHash(pr.id, v) !== pr.pin) { msg.textContent = 'Code incorrect.'; return; } msg.textContent = ''; }
+    const pass = raw.get(`p:${pr.id}:pass`); if (!pass) { msg.textContent = 'Aucun mot de passe enregistré pour ce compte.'; return; }
+    val.textContent = pass; val.hidden = false; show.textContent = '🙈 Masquer';
+    setTimeout(() => { val.hidden = true; val.textContent = ''; show.textContent = '👁️ Voir le mot de passe'; }, 15000);
+  };
+  pw.append(show, val); card.append(pw);
   card.append(msg);
   return card;
 }

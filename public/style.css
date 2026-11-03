@@ -315,3 +315,6 @@ body.is-locked > #lock{visibility:visible}
 .ag-years{display:flex;align-items:center;gap:8px}.ag-years .fsel{min-width:0}
 .extra-h{margin:10px 0 4px;font-size:.95rem}.extra-rate{margin:0 0 6px;font-weight:700}
 .extra-com{margin:6px 0;padding:6px 10px;border-left:3px solid var(--line)}.extra-com p{margin:2px 0}.extra-com small{opacity:.7}
+.pw-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:8px 0 0}.pw-val{padding:6px 10px;border-radius:8px;background:var(--chip);font-size:1rem;word-break:break-all;user-select:all}
+#loginBox label{position:relative}.pw-eye{position:absolute;right:8px;bottom:6px;border:0;background:transparent;font-size:1.2rem;padding:6px;min-width:40px;min-height:40px}
+#loginBox #pass{padding-right:52px}
