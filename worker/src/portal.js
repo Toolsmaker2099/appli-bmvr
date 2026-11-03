@@ -536,6 +536,7 @@ export function parseSearch(res) {
       availability,
       image: (() => { const v = first(e.imageSource_512) ?? first(e.imageSource_256) ?? first(e.imageSource_128); if (!v || typeof v !== 'string') return ''; const u = v.startsWith('http') ? v : v.startsWith('/') ? BASE + v : ''; return u && /^https:\/\//.test(u) ? u + (u.includes('rest/Thumb') && !u.includes('siteId=') ? (u.includes('?') ? '&' : '?') + 'siteId=mainSite' : '') : ''; })(),
       coverId: num ? id : '',
+      ark: (() => { const v = String(first(e.ark) ?? ''); return /^\d{3,8}\/[A-Za-z0-9._-]{3,40}$/.test(v) ? v : ''; })(),
       isbn: String(first(e[Object.keys(e).find((k) => /isbn/i.test(k)) ?? 'isbn']) ?? first(e.isbn13) ?? first(e.isbn10) ?? first(e.meta?.isbn) ?? first(e.meta?.isbn13) ?? '').replace(/[^0-9Xx]/g, ''),
       fields,
       digital: String(first(e.IsPhysicalDocument) ?? '') === '0',
@@ -567,14 +568,63 @@ async function attachStock(c, token, results, max = 30) {
   }));
 }
 
-export async function searchCatalogue(creds, query, fetchFn = fetch, debug = false, page = 1, queryId = '') {
+// Recherche avancée : champ visé, tri, filtres (facettes du portail) et fourchette d'années, tous validés avant d'être envoyés.
+const FIELD_IDX = { title: 'title_t', author: 'author_t', subject: 'subject_t', isbn: 'isbn_s' };
+const FILTER_CODES = ['CodeLanguage', 'subject_s', 'genres_s', 'author_s', 'publisher_s', 'DateOfPublication'];
+const FILTER_LABELS = { CodeLanguage: 'Langue', subject_s: 'Sujet', genres_s: 'Genre', author_s: 'Auteur', publisher_s: 'Éditeur' };
+const ORDERS = ['score_DESC', 'SortkeyAuthor_ASC', 'SortkeyAuthor_DESC', 'SortkeyTitle_ASC', 'SortkeyTitle_DESC', 'DateOfPublicationSearch_date_DESC', 'DateOfPublicationSearch_date_ASC'];
+const cleanVal = (v) => String(v ?? '').replace(/["\\]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80);
+export function buildSearch(q, opts = {}) {
+  const idx = FIELD_IDX[opts.field];
+  const query = idx ? `${idx}:"${cleanVal(q)}"` : q;
+  const fq = [];
+  for (const [code, v] of Object.entries(opts.filters ?? {})) {
+    if (!FILTER_CODES.includes(code) || code === 'DateOfPublication') continue;
+    for (const x of [].concat(v)) { const c = cleanVal(x); if (c) fq.push(`${code}:"${c}"`); }
+  }
+  const y1 = Number(opts.yearFrom) || 0, y2 = Number(opts.yearTo) || 0;
+  if ((y1 >= 1000 && y1 <= 2100) || (y2 >= 1000 && y2 <= 2100)) fq.push(`DateOfPublication:[${y1 >= 1000 ? y1 : '*'} TO ${y2 >= 1000 && y2 <= 2100 ? y2 : '*'}]`);
+  return { query, fq, order: ORDERS.includes(opts.order) ? opts.order : undefined };
+}
+export function parseFacets(res) {
+  return (res.facets ?? []).filter((f) => FILTER_LABELS[f.code]).map((f) => ({ code: f.code, label: FILTER_LABELS[f.code], items: (f.items ?? []).slice(0, 15).map((i) => ({ value: String(i.value), label: String(i.caption ?? i.display ?? i.value), count: i.count })) })).filter((f) => f.items.length);
+}
+export async function searchCatalogue(creds, query, fetchFn = fetch, debug = false, page = 1, queryId = '', opts = {}) {
   const q = String(query ?? '').trim().slice(0, 200);
   if (!q) throw new Error('Saisis un titre, un auteur ou un mot-clé');
   const { c, token } = await login(creds, fetchFn);
-  const res = failIfError(await c.post(token, 'search', { query: [q], queryid: /^[0-9a-f-]{36}$/i.test(queryId) ? queryId : 'NONE', sf: '*', includeFacets: false, pageNo: Math.min(Math.max(Number(page) || 1, 1), 10), pageSize: 20, locale: 'fr' }), 'Recherche');
+  const pageNo = Math.min(Math.max(Number(page) || 1, 1), 10);
+  const b = buildSearch(q, opts);
+  const res = failIfError(await c.post(token, 'search', { query: [b.query], ...(b.fq.length ? { fq: b.fq } : {}), ...(b.order ? { order: b.order } : {}), queryid: /^[0-9a-f-]{36}$/i.test(queryId) ? queryId : 'NONE', sf: '*', includeFacets: pageNo === 1, pageNo, pageSize: 20, locale: 'fr' }), 'Recherche');
   const results = parseSearch(res);
   await attachStock(c, token, results);
-  return debug ? { results, shape: shapeOf(res), firstKeys: Object.keys(res?.resultSet?.[0] ?? {}), metaKeys: Object.keys(res?.resultSet?.[0]?.meta ?? {}) } : { results, total: res.totalHits ?? res.total ?? results.length };
+  return debug ? { results, shape: shapeOf(res), firstKeys: Object.keys(res?.resultSet?.[0] ?? {}), metaKeys: Object.keys(res?.resultSet?.[0]?.meta ?? {}) } : { results, total: res.numHits ?? res.totalHits ?? res.total ?? results.length, ...(pageNo === 1 ? { facets: parseFacets(res) } : {}) };
+}
+
+// Infos complémentaires d'un document : note et avis des lecteurs, sujets / genres pour trouver des documents proches.
+export async function fetchDocExtra(id, fetchFn = fetch) {
+  check(id);
+  const c = makeClient(fetchFn); await c.init();
+  const [meta, rat, com] = await Promise.all([
+    c.get(null, 'notice', { id, locale: 'fr', aspect: 'Meta' }).catch(() => ({})),
+    c.get(null, 'ratings', { iid: id }).catch(() => ({})),
+    c.get(null, 'notice', { id, locale: 'fr', aspect: 'Comments' }).catch(() => []),
+  ]);
+  const topics = [];
+  for (const f of meta.fields ?? []) {
+    const kind = f.name === 'subject' ? 'Sujet' : f.name === 'themes' ? 'Thème' : f.name === 'genres' || f.name === 'genre' ? 'Genre' : '';
+    if (!kind) continue;
+    for (const v of (f.values ?? []).slice(0, 6)) {
+      const label = String(v.qa?.DocumentCaption ?? v.qa?.Answer ?? '').trim(); const query = String(v.exploreQuery ?? '').trim();
+      if (label && query && query.length < 160) topics.push({ kind, label, query });
+    }
+  }
+  const r = rat.ratings ?? {};
+  const rating = r.totalCount ? { average: Number(r.average) || 0, count: Number(r.totalCount) || 0 } : null;
+  const arr = Array.isArray(com) ? com : (com?.comments ?? Object.values(com ?? {}));
+  const str = (v) => (typeof v === 'string' ? v : v && typeof v === 'object' ? String(v.value ?? v.Answer ?? v.fr ?? '') : '');
+  const comments = arr.filter((x) => x && typeof x === 'object').slice(0, 20).map((x) => ({ title: str(x.title), text: htmlToText(str(x.comment ?? x.text ?? x.content ?? x.body ?? x.value)), author: str(x.userName ?? x.author ?? x.userid ?? x.user), date: toISODate(x.date ?? x.creationDate ?? x.modificationDate) })).filter((x) => x.text);
+  return { topics: topics.slice(0, 8), rating, comments };
 }
 
 const ID_RE = /^[A-Za-z0-9_:.\-\/]{1,120}$/;

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { checksum, fetchLoans, fetchServiceUrl, renewLoan, parseLoans, toISODate, cleanTitle, cleanAuthor, parseAgenda, htmlToText } from './src/portal.js';
+import { checksum, fetchLoans, fetchServiceUrl, renewLoan, parseLoans, toISODate, cleanTitle, cleanAuthor, parseAgenda, htmlToText, buildSearch } from './src/portal.js';
 
 test('somme de contrôle identique à celle du portail', () => {
   // 305419896 + 'a'(97)*1 + 'b'(98)*2
@@ -126,4 +126,13 @@ test('agenda : dates passées écartées, doublons fusionnés, notice sans id ig
 
 test('htmlToText garde les paragraphes et retire les balises', () => {
   assert.equal(htmlToText('<p>Un &amp; deux</p><p>Trois<br>quatre</p><script>x()</script>'), 'Un & deux\n\nTrois\nquatre');
+});
+
+test('recherche avancée : champ, filtres et années validés', () => {
+  const b = buildSearch('Hugo', { field: 'author', filters: { CodeLanguage: 'eng', evil: 'x', subject_s: ['A"B'] }, yearFrom: 1990, yearTo: '2000', order: 'SortkeyTitle_ASC' });
+  assert.equal(b.query, 'author_t:"Hugo"');
+  assert.deepEqual(b.fq, ['CodeLanguage:"eng"', 'subject_s:"A B"', 'DateOfPublication:[1990 TO 2000]']);
+  assert.equal(b.order, 'SortkeyTitle_ASC');
+  const c = buildSearch('x', { field: 'zzz', order: 'DROP', yearFrom: 5 });
+  assert.equal(c.query, 'x'); assert.deepEqual(c.fq, []); assert.equal(c.order, undefined);
 });

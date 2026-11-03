@@ -577,6 +577,31 @@ function noticeFields(entries) {
   for (const [k, v] of entries) if (v) { const d = el('div', 'nf' + (String(v).length > 90 ? ' wide' : '')); d.append(el('small', '', k), el('p', '', v)); g.append(d); }
   return g.children.length ? g : null;
 }
+// Avis des lecteurs et documents proches (même sujet, thème ou genre) : chargés à l'ouverture.
+function extraPanel(item) {
+  const det = el('details', 'notice extra');
+  det.append(accSummary('💬', 'Avis des lecteurs et documents proches'));
+  const body = el('div', 'notice-body'); det.append(body);
+  let loaded = false;
+  det.ontoggle = async () => {
+    if (!det.open || loaded) return;
+    loaded = true; body.textContent = 'Chargement…';
+    try {
+      const d = await call('/doc-extra', { id: item.id });
+      body.replaceChildren();
+      const sec = (t) => { const h = el('h4', 'extra-h', t); body.append(h); };
+      sec('Avis des lecteurs');
+      if (d.rating) body.append(el('p', 'extra-rate', `⭐ ${String(Math.round(d.rating.average * 10) / 10).replace('.', ',')} / 10 · ${d.rating.count} note${d.rating.count > 1 ? 's' : ''}`));
+      for (const c of d.comments || []) { const q = el('blockquote', 'extra-com'); if (c.title) q.append(el('strong', '', c.title)); q.append(el('p', '', c.text)); const who = [c.author, c.date && shortDate(c.date)].filter(Boolean).join(' · '); if (who) q.append(el('small', '', who)); body.append(q); }
+      if (!d.rating && !(d.comments || []).length) body.append(el('p', 'hint', 'Aucune note ni aucun avis pour ce document.'));
+      body.append(el('p', 'hint', 'Noter ou commenter se fait pour l’instant sur le site officiel.'));
+      sec('Documents proches');
+      if (d.topics?.length) { const row = el('div', 'more-like'); for (const t of d.topics) { const b = el('button', 'fchip', `${t.kind === 'Genre' ? '🎭' : '🏷️'} ${t.kind} : ${t.label}`); b.onclick = () => goSearch(t.query); row.append(b); } body.append(row); }
+      else body.append(el('p', 'hint', 'Aucun sujet ni thème renseigné pour ce document.'));
+    } catch (e) { loaded = false; body.textContent = 'Impossible de charger : ' + e.message; }
+  };
+  return det;
+}
 function searchCard(item, inSearch = false) {
   const li = el('li', 'card');
   const head = el('div', 'card-head');
@@ -661,6 +686,7 @@ function searchCard(item, inSearch = false) {
       }
     } catch (e) { loaded = false; body.textContent = 'Impossible de charger les détails : ' + e.message; }
   };
+  if (item.id) li.append(extraPanel(item));
   li.append(det);
   const row = el('div', 'btn-row');
   const fav = el('button', 'secondary small fav-btn', '♡ Favoris');
@@ -733,6 +759,7 @@ async function openDocument(item) {
 
 // ---------- même auteur, même série ----------
 function goSearch(q) {
+  Object.assign(ADV, { field: '', order: '', yearFrom: '', yearTo: '', filters: {} });
   $('q').value = q;
   if (location.hash !== '#chercher') { location.hash = '#chercher'; setTimeout(() => runSearch(false), 60); } else runSearch(false);
 }
@@ -750,6 +777,7 @@ function moreLikeThis(item) {
 }
 
 // ---------- recherche : filtres, tri, pagination, scan ----------
+const ADV = { open: false, field: '', order: '', yearFrom: '', yearTo: '', filters: {}, facets: [] };
 const SS = { qid: '', q: '', page: 1, items: [], more: false, avail: false, resa: false, type: '', branch: '', sort: 'pertinence', busy: false };
 const fieldOf = (it, label) => (it.fields.find(([l]) => l === label) || [])[1] || '';
 const yearOf = (it) => Number((fieldOf(it, 'Date').match(/\d{4}/) || [0])[0]);
@@ -793,18 +821,50 @@ function renderSearch() {
   $('moreBtn').hidden = !SS.more;
   if (SS.items.length && !shown.length) list.append(emptyState('🔎', 'Aucun résultat avec ces filtres', 'Retirez un filtre ou chargez plus de résultats.'));
 }
-async function runSearch(more) {
+function renderAdv() {
+  const box = $('advBox'); if (!box) return;
+  box.replaceChildren();
+  const nb = Object.keys(ADV.filters).length + (ADV.field ? 1 : 0) + (ADV.order ? 1 : 0) + (ADV.yearFrom || ADV.yearTo ? 1 : 0);
+  const tog = el('button', 'fchip' + (nb ? ' on' : ''), `⚙️ Recherche avancée${nb ? ` (${nb})` : ''}`); tog.type = 'button';
+  tog.onclick = () => { ADV.open = !ADV.open; renderAdv(); };
+  box.append(tog);
+  if (!ADV.open) return;
+  const panel = el('div', 'ag-form adv');
+  const fld = (label, ctl) => { const w = el('label', 'ag-fld'); w.append(el('span', '', label), ctl); return w; };
+  const sel = (opts, value, fn) => { const x = el('select', 'fsel'); for (const [v, t] of opts) x.append(new Option(t, v)); x.value = value; x.onchange = () => fn(x.value); return x; };
+  panel.append(
+    fld('🔤 Chercher dans', sel([['', 'Partout'], ['title', 'Le titre'], ['author', 'L’auteur'], ['subject', 'Le sujet'], ['isbn', 'L’ISBN']], ADV.field, (v) => { ADV.field = v; renderAdv(); })),
+    fld('↕️ Trier tous les résultats', sel([['', 'Pertinence'], ['SortkeyTitle_ASC', 'Titre A → Z'], ['SortkeyTitle_DESC', 'Titre Z → A'], ['SortkeyAuthor_ASC', 'Auteur A → Z'], ['DateOfPublicationSearch_date_DESC', 'Plus récent d’abord'], ['DateOfPublicationSearch_date_ASC', 'Plus ancien d’abord']], ADV.order, (v) => { ADV.order = v; renderAdv(); })),
+  );
+  const yr = el('div', 'ag-years'); const mk = (ph, key) => { const i = el('input', 'fsel'); i.type = 'number'; i.inputMode = 'numeric'; i.min = 1000; i.max = 2100; i.placeholder = ph; i.value = ADV[key]; i.onchange = () => { ADV[key] = i.value.trim(); renderAdv(); }; return i; };
+  yr.append(mk('de (année)', 'yearFrom'), el('span', '', '→'), mk('à (année)', 'yearTo')); panel.append(fld('📅 Année de publication', yr));
+  if (SS.items.length && ADV.facets.length) {
+    panel.append(el('p', 'hint adv-h', 'Affiner les résultats'));
+    for (const f of ADV.facets) {
+      const cur = ADV.filters[f.code]?.[0] || '';
+      const opts = [['', `Tous (${f.label.toLowerCase()})`], ...f.items.map((i) => [i.value, `${i.label} (${i.count})`])];
+      if (cur && !f.items.some((i) => i.value === cur)) opts.push([cur, cur]);
+      panel.append(fld(f.label, sel(opts, cur, (v) => { if (v) ADV.filters[f.code] = [v]; else delete ADV.filters[f.code]; if ($('q').value.trim()) runSearch(false, true); })));
+    }
+  }
+  const row = el('div', 'btn-row');
+  const go = el('button', 'primary small', 'Lancer la recherche'); go.type = 'button'; go.onclick = () => { if ($('q').value.trim()) runSearch(false, true); };
+  const clr = el('button', 'secondary small', 'Tout effacer'); clr.type = 'button'; clr.onclick = () => { Object.assign(ADV, { field: '', order: '', yearFrom: '', yearTo: '', filters: {} }); renderAdv(); if (SS.q) runSearch(false, true); };
+  row.append(go, clr); panel.append(row); box.append(panel);
+}
+async function runSearch(more, keep) {
   if (SS.busy) return;
   SS.busy = true;
-  if (!more) { SS.single = false; SS.q = $('q').value.trim(); SS.qid = crypto.randomUUID?.() || ''; SS.page = 1; SS.items = []; SS.avail = SS.resa = false; SS.type = SS.branch = ''; $('searchList').replaceChildren(); $('searchTools').hidden = true; }
+  if (!more) { SS.single = false; SS.q = $('q').value.trim(); SS.qid = crypto.randomUUID?.() || ''; SS.page = 1; SS.items = []; SS.avail = SS.resa = false; SS.type = SS.branch = ''; if (!keep) { ADV.filters = {}; ADV.facets = []; } $('searchList').replaceChildren(); $('searchTools').hidden = true; }
   else SS.page += 1;
   $('searchStatus').textContent = more ? 'Chargement…' : 'Recherche…'; $('moreBtn').disabled = true;
   try {
-    const data = await call('/search', { query: SS.q, page: SS.page, queryId: SS.qid });
+    const data = await call('/search', { query: SS.q, page: SS.page, queryId: SS.qid, field: ADV.field, order: ADV.order, yearFrom: ADV.yearFrom, yearTo: ADV.yearTo, filters: ADV.filters });
+    if (!more && data.facets) ADV.facets = data.facets;
     const known = new Set(SS.items.map((it) => it.id));
     SS.items.push(...data.results.filter((it) => !known.has(it.id)));
     SS.more = data.results.length >= 20 && SS.page < 10;
-    renderSearch();
+    renderSearch(); renderAdv();
   } catch (e) { if (more) SS.page -= 1; $('searchStatus').textContent = 'Recherche impossible : ' + e.message; }
   finally { SS.busy = false; $('moreBtn').disabled = false; }
 }
@@ -815,6 +875,7 @@ $('searchForm').onsubmit = (ev) => {
   $('q').blur(); runSearch(false);
 };
 $('moreBtn').onclick = () => runSearch(true);
+renderAdv();
 
 // Scan du code-barres d'un livre : détecteur du navigateur s'il existe, sinon bibliothèque ZXing chargée à la demande.
 let scanStop = null;
@@ -1119,7 +1180,20 @@ async function showBasket(body, status, b) {
   back.onclick = () => showBaskets(body, status);
   try {
     const { results } = await call('/basket', { action: 'content', basketId: b.id });
-    body.append(back);
+    const top = el('div', 'frow'); top.style.margin = '0 0 12px'; back.style.margin = '0';
+    top.append(back);
+    if (results.length) {
+      const sh = el('button', 'primary small', '📤 Partager la liste');
+      sh.onclick = async () => {
+        const lines = results.map((it) => { const au = fieldOf(it, 'Auteurs').split(' · ')[0].replace(/\s*[\[(].*$/, '').replace(/\s*\d{3,4}\b.*$/, '').trim(); return `• ${it.title}${au ? ' — ' + au : ''}${it.ark ? '\n  https://www.bmvr.marseille.fr/ark:/' + it.ark : ''}`; });
+        const text = `Ma liste « ${b.name} » (Bibliothèques de Marseille)\n\n${lines.join('\n')}`;
+        try { if (navigator.share) { await navigator.share({ title: `Liste « ${b.name} »`, text }); return; } } catch (e) { if (e?.name === 'AbortError') return; }
+        try { await navigator.clipboard.writeText(text); sh.textContent = '✓ Liste copiée'; setTimeout(() => { sh.textContent = '📤 Partager la liste'; }, 2500); }
+        catch { prompt('Copiez le texte de la liste :', text); }
+      };
+      top.append(sh);
+    }
+    body.append(top);
     const ul = el('ul', 'cards');
     if (!results.length) { ul.append(emptyState('📭', 'Liste vide', 'Ajoutez des documents avec le bouton ♡.')); }
     for (const it of results) {
