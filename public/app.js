@@ -1828,7 +1828,7 @@ function syncNotifEvents() {
   syncTimer = setTimeout(async () => { try { const sub = await pushSub(); if (sub) await call('/notif-update', { endpoint: sub.endpoint, events: agList() }); } catch { /* sera resynchronisé plus tard */ } }, 1500);
 }
 const urlB64 = (b) => { const t = (b + '='.repeat((4 - (b.length % 4)) % 4)).replace(/-/g, '+').replace(/_/g, '/'); const r = atob(t); return Uint8Array.from(r, (c) => c.charCodeAt(0)); };
-const NOTIF_TYPES = [['loans', '📚 Prêts à rendre (3 jours avant, veille, jour J, retard)'], ['resa', '🔖 Réservations (à retirer, rang qui avance)'], ['messages', '✉️ Nouveaux messages de la bibliothèque'], ['events', '📅 Événements de « Mes événements » (veille, 2 h avant)']];
+const NOTIF_TYPES = [['loans', '📚 Prêts à rendre (3 jours avant, veille, jour J, retard)'], ['resa', '🔖 Réservations (à retirer, rang qui avance)'], ['messages', '✉️ Nouveaux messages de la bibliothèque'], ['events', '📅 Événements de « Mes événements » (la veille, le matin même)']];
 async function notifPanel() {
   const cfg = await notifConfig();
   if (!cfg.enabled || isRestricted()) return null;
@@ -1860,10 +1860,10 @@ async function notifPanel() {
       return;
     }
     store.del('notifOn');
-    box.append(el('p', 'hint', st.other ? 'Les notifications de cet appareil sont liées à un autre compte. Vous pouvez les reprendre pour ce compte.' : 'Recevez une alerte sur ce téléphone, même appli fermée : réservation à retirer, prêt à rendre, nouveau message, événement de votre liste.'));
+    box.append(el('p', 'hint', st.other ? 'Les notifications de cet appareil sont liées à un autre compte. Vous pouvez les reprendre pour ce compte.' : 'Recevez une alerte sur ce téléphone, même appli fermée : réservation à retirer, prêt à rendre, nouveau message, événement de votre liste (vérifié toutes les 3 heures environ).'));
     const on = el('button', 'primary small', st.other ? 'Activer pour ce compte' : 'Activer les notifications');
     on.onclick = async () => {
-      if (!confirm('Pour vous prévenir même quand l’appli est fermée, le relais doit garder votre identifiant et votre mot de passe BMVR sur un serveur (chiffrés) et consulter votre compte toutes les 30 minutes.\n\nVous pouvez tout effacer à tout moment avec « Désactiver ». Activer les notifications ?')) return;
+      if (!confirm('Pour vous prévenir même quand l’appli est fermée, le relais doit garder votre identifiant et votre mot de passe BMVR sur un serveur (chiffrés) et consulter votre compte quelques fois par jour (toutes les 3 heures environ, jamais la nuit).\n\nVous pouvez tout effacer à tout moment avec « Désactiver ». Activer les notifications ?')) return;
       on.disabled = true; msg.textContent = 'Activation…';
       try {
         if ((await Notification.requestPermission()) !== 'granted') throw new Error('Autorisation refusée : autorisez les notifications pour ce site dans les réglages du navigateur.');

@@ -1,7 +1,7 @@
 // Notifications téléphone (Web Push). Fonction optionnelle : inactive tant que le stockage KV (NOTIF) et les trois secrets
 // (VAPID_PUBLIC, VAPID_PRIVATE, NOTIF_KEY) ne sont pas configurés dans Cloudflare.
 // Pour les personnes qui l'activent, l'identifiant et le mot de passe BMVR sont gardés CHIFFRÉS (AES-GCM, clé NOTIF_KEY) afin que
-// le relais puisse interroger le compte toutes les 30 minutes ; « Désactiver » efface tout. Rien n'est journalisé.
+// le relais puisse interroger le compte quelques fois par jour (toutes les 3 heures environ, jamais la nuit) ; « Désactiver » efface tout. Rien n'est journalisé.
 import { fetchLoans, fetchReservations, fetchAccount, AuthError } from './portal.js';
 
 const enc = new TextEncoder();
@@ -112,7 +112,7 @@ export async function manage(env, body, action) {
   throw new Error('Action inconnue');
 }
 
-// ---- contrôle périodique (déclenché par le cron toutes les 30 minutes) ----
+// ---- contrôle périodique (cron horaire ; chaque abonné n'est contrôlé que toutes les 3 heures environ, jamais la nuit) ----
 export function detect(rec, data, now = Date.now()) {
   const { day, time } = parisParts(now);
   const prefs = rec.prefs ?? DEFAULT_PREFS; const st = rec.state ?? {}; const baseline = !rec.state;
@@ -144,15 +144,13 @@ export function detect(rec, data, now = Date.now()) {
   for (const m of data.messages ?? []) { next.msgSeen.push(m.id); if (!seen.has(m.id)) newMsgs.push(m); }
   next.msgSeen = next.msgSeen.slice(0, 60);
   if (!baseline && prefs.messages && newMsgs.length) notes.push({ title: newMsgs.length > 1 ? `✉️ ${newMsgs.length} nouveaux messages` : '✉️ Nouveau message', body: newMsgs[0].title, tag: 'messages', url: '#espace/messages' });
-  // événements de « Mes événements » : la veille en soirée, et 2 h avant le début
+  // événements de « Mes événements » : la veille en soirée, et le jour même le matin
   const events = (rec.events ?? []).filter((e) => e.date >= day);
   if (prefs.events) for (const e of events) {
     const k1 = `${e.id}|${e.date}|veille`, k2 = `${e.id}|${e.date}|jour`;
     const sent = new Set(st.eventsSent ?? []);
-    const [h, m] = (e.hour || '').split(':').map(Number);
-    const mins = e.hour ? h * 60 + m - (Number(time.slice(0, 2)) * 60 + Number(time.slice(3, 5))) : null;
     if (e.date === addDays(day, 1) && time >= '17:00' && !sent.has(k1)) { notes.push({ title: '📅 Demain : ' + e.title, body: [e.hour, e.library].filter(Boolean).join(' · '), tag: k1, url: '#espace/mesevenements' }); next.eventsSent.push(k1); }
-    if (e.date === day && mins !== null && mins > 0 && mins <= 150 && !sent.has(k2)) { notes.push({ title: '📅 Bientôt : ' + e.title, body: [e.hour, e.library].filter(Boolean).join(' · '), tag: k2, url: '#espace/mesevenements' }); next.eventsSent.push(k2); }
+    if (e.date === day && time >= '07:00' && (!e.hour || e.hour > time) && !sent.has(k2)) { notes.push({ title: '📅 Aujourd’hui : ' + e.title, body: [e.hour, e.library].filter(Boolean).join(' · '), tag: k2, url: '#espace/mesevenements' }); next.eventsSent.push(k2); }
   }
   next.eventsSent = [...new Set([...(st.eventsSent ?? []).filter((k) => events.some((e) => k.startsWith(e.id + '|' + e.date + '|'))), ...next.eventsSent])];
   return { notes: notes.slice(0, 4), state: next, events };
@@ -187,8 +185,11 @@ async function checkOne(env, id, rec, now) {
 // Traite les abonnés les moins récemment contrôlés (quelques-uns par passage : limite de sous-requêtes de Cloudflare).
 export async function runChecks(env, now = Date.now(), batch = Number(env?.NOTIF_BATCH) || 3) {
   if (!configured(env)) return { checked: 0 };
+  const hour = Number(parisParts(now).time.slice(0, 2));
+  if (hour < 7 || hour >= 22) return { checked: 0, night: true }; // pas de contrôle la nuit
+  const every = Math.max(30, Number(env?.NOTIF_EVERY_MIN) || 180) * 60 * 1000; // par défaut : toutes les 3 heures
   const listed = await env.NOTIF.list({ prefix: 'sub:', limit: 1000 });
-  const due = listed.keys.map((k) => ({ id: k.name.slice(4), at: k.metadata?.checkedAt ?? 0 })).filter((k) => now - k.at > 25 * 60 * 1000).sort((a, b) => a.at - b.at).slice(0, batch);
+  const due = listed.keys.map((k) => ({ id: k.name.slice(4), at: k.metadata?.checkedAt ?? 0 })).filter((k) => now - k.at > every - 10 * 60 * 1000).sort((a, b) => a.at - b.at).slice(0, batch);
   for (const k of due) {
     const rec = await load(env, k.id); if (!rec) continue;
     try { await checkOne(env, k.id, rec, now); } catch { /* un abonné défaillant ne bloque pas les autres */ }

@@ -34,12 +34,12 @@ test('messages : seuls les nouveaux déclenchent une alerte', () => {
   assert.equal(second.notes[0].body, 'Réservation prête');
 });
 
-test('événements : veille en soirée et 2 h avant, une seule fois, passés retirés', () => {
+test('événements : veille en soirée et matin du jour, une seule fois, passés retirés', () => {
   const events = [{ id: 'h::e1', date: '2026-11-04', title: 'Éveil musical', hour: '10:00', library: 'Castellane' }, { id: 'h::e2', date: '2026-11-03', title: 'Conte', hour: '21:00', library: 'Alcazar' }, { id: 'h::old', date: '2026-10-01', title: 'Vieux', hour: '10:00', library: '' }];
   const r1 = detect(rec({ events }), {}, NOW);
   assert.equal(r1.notes.length, 2);
   assert.equal(r1.events.length, 2);
-  assert.ok(r1.notes.some((n) => /Demain/.test(n.title)) && r1.notes.some((n) => /Bientôt/.test(n.title)));
+  assert.ok(r1.notes.some((n) => /Demain/.test(n.title)) && r1.notes.some((n) => /Aujourd’hui/.test(n.title)));
   const r2 = detect(rec({ events, state: r1.state }), {}, NOW);
   assert.equal(r2.notes.length, 0);
 });
@@ -81,4 +81,14 @@ test('gestion : refus pour un autre compte, effacement pour le bon', async () =>
   assert.equal((await manage(env, { endpoint, username: 'u1', password: 'p1' }, 'status')).subscribed, true);
   await manage(env, { endpoint, username: 'u1', password: 'p1' }, 'unsubscribe');
   assert.equal(store.size, 0);
+});
+
+test('contrôle : pas la nuit, et pas avant la fin de l\'intervalle', async () => {
+  const { runChecks } = await import('./src/push.js');
+  let listed = 0;
+  const env = { NOTIF_KEY: 'x', VAPID_PUBLIC: 'x', VAPID_PRIVATE: 'x', NOTIF: { list: async () => { listed++; return { keys: [{ name: 'sub:a', metadata: { checkedAt: Date.parse('2026-11-03T16:00:00Z') } }] }; }, get: async () => null } };
+  assert.equal((await runChecks(env, Date.parse('2026-11-03T02:00:00Z'))).night, true); // 03h à Paris
+  assert.equal(listed, 0);
+  assert.equal((await runChecks(env, Date.parse('2026-11-03T17:00:00Z'))).checked, 0); // 18h, dernier contrôle 17h : trop tôt
+  assert.equal((await runChecks(env, Date.parse('2026-11-03T19:30:00Z'))).checked, 1); // 20h30 : plus de 3 h
 });
