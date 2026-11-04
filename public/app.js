@@ -1371,16 +1371,9 @@ function drawServices(data) {
       //location.assign(d.url);
 
       // 2. Preparation pour l'étude statistique des liens cliqués
-      const meta = document.createElement('meta');
-      meta.name = 'referrer';
-      meta.content = 'unsafe-url'; // Écrase le comportement strict-origin-when-cross-origin du navigateur
-      document.head.appendChild(meta);
-      
-      // 3. Construction de l'URL pour mylinksbiblio
+      // On envoie simplement vers le second Worker
       const urlAiguillee = 'https://mylinksbiblio.toolsmaker.workers.dev/?url=' + encodeURIComponent(d.url);
-      
-      // 4. Navigation
-      location.assign(urlAiguillee);    
+      location.assign(urlAiguillee);  
     
     } catch (e) { err.textContent = 'Essai Marsactu : ' + e.message; } finally { t.disabled = false; strong.textContent = label; }
   };
