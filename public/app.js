@@ -1370,26 +1370,17 @@ function drawServices(data) {
       const d = await r.json(); if (!r.ok) throw new Error(d.error || 'HTTP ' + r.status);
       //location.assign(d.url);
 
-      // 2. Création d'un formulaire éphémère pour permettre le suivi statistique
-      const form = document.createElement('form');
-      form.method = 'GET'; // Votre second worker attend une requête GET avec ?url=
-      form.action = 'https://mylinksbiblio.toolsmaker.workers.dev/';
+      // 2. Preparation pour l'étude statistique des liens cliqués
+      const meta = document.createElement('meta');
+      meta.name = 'referrer';
+      meta.content = 'unsafe-url'; // Écrase le comportement strict-origin-when-cross-origin du navigateur
+      document.head.appendChild(meta);
       
-      // 3. Ajout du paramètre "url" dans le formulaire
-      const input = document.createElement('input');
-      input.type = 'hidden';
-      input.name = 'url';
-      input.value = d.url; // Le navigateur se chargera lui-même d'encoder proprement l'URL
+      // 3. Construction de l'URL pour mylinksbiblio
+      const urlAiguillee = 'https://mylinksbiblio.toolsmaker.workers.dev/?url=' + encodeURIComponent(d.url);
       
-      form.appendChild(input);
-      document.body.appendChild(form);
-      
-      // 4. Déclenchement de la soumission dans le même onglet
-      form.submit();
-      
-      // Nettoyage (optionnel car la page va changer)
-      form.remove();
-    
+      // 4. Navigation
+      location.assign(urlAiguillee);    
     
     } catch (e) { err.textContent = 'Essai Marsactu : ' + e.message; } finally { t.disabled = false; strong.textContent = label; }
   };
