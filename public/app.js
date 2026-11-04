@@ -1363,9 +1363,20 @@ function drawServices(data) {
   t.onclick = async () => {
     const err = $('svcErr'); err.textContent = ''; const strong = t.querySelector('strong'), label = strong.textContent; t.disabled = true; strong.textContent = label + '…';
     try {
+      
+      // 1. Appel normal à votre premier Worker de traitement
+      
       const r = await fetch(RELAY + '/service', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: store.get('user'), password: store.get('pass'), service: 'marsactu' }) });
       const d = await r.json(); if (!r.ok) throw new Error(d.error || 'HTTP ' + r.status);
-      location.assign(d.url);
+      //location.assign(d.url);
+
+      // 2. Construction de l'URL pour passer par votre second Worker d'e centralisation des clics pour statistiques
+      const urlAiguillee = 'https://mylinksbiblio.toolsmaker.workers.dev' + encodeURIComponent(d.url);
+      
+      // 3. Ouverture dans le même onglet à travers mylinksbiblio
+      location.assign(urlAiguillee);
+    
+    
     } catch (e) { err.textContent = 'Essai Marsactu : ' + e.message; } finally { t.disabled = false; strong.textContent = label; }
   };
   wrap.append(t); g.append(wrap); box.append(g);
