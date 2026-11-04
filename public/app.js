@@ -1970,3 +1970,61 @@ new MutationObserver((muts) => { for (const m of muts) for (const n of m.addedNo
 renderLock();
 go();
 setTimeout(syncNotifEvents, 4000);
+
+
+// ---------- installation de l'appli (écran d'accueil du téléphone ou de la tablette) ----------
+// Bouton affiché seulement sur mobile ou tablette, dans un navigateur capable d'installer l'appli (Chrome Android, Safari et Chrome iOS/iPadOS),
+// tant que l'appli n'est pas déjà installée. Explication adaptée à l'appareil et au navigateur.
+let installPrompt = null;
+function installEnv() {
+  const ua = navigator.userAgent || '';
+  const ipados = navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1;
+  const ios = /iphone|ipad|ipod/i.test(ua) || ipados;
+  const android = /android/i.test(ua);
+  const inApp = /FBAN|FBAV|Instagram|WhatsApp|Line\/|Twitter|Snapchat|; wv\)|MicroMessenger|GSA\//i.test(ua);
+  const tablet = /ipad/i.test(ua) || ipados || (android && !/mobile/i.test(ua));
+  let browser = '';
+  if (!inApp) {
+    if (ios) browser = /CriOS\//.test(ua) ? 'chrome' : /FxiOS|EdgiOS|OPiOS|OPT\//.test(ua) ? '' : /Safari\//.test(ua) ? 'safari' : '';
+    else if (android) browser = /Chrome\//.test(ua) && !/EdgA|OPR\/|SamsungBrowser|Firefox|UCBrowser|Vivaldi/.test(ua) ? 'chrome' : '';
+  }
+  return { ios, android, tablet, browser, device: tablet ? 'tablette' : 'téléphone' };
+}
+const isInstalled = () => window.matchMedia?.('(display-mode: standalone)').matches || navigator.standalone === true;
+const installDismissed = () => { const t = Number(raw.get('installDismissed') || 0); return t && Date.now() - t < 14 * 86400000; };
+function installSteps(env) {
+  if (env.android) return { title: 'Installer sur ' + (env.tablet ? 'votre tablette' : 'votre téléphone') + ' (Chrome)', steps: ['Touchez le menu ⋮ (trois points) en haut à droite de Chrome.', 'Touchez « Installer l’application » (ou « Ajouter à l’écran d’accueil »).', 'Confirmez avec « Installer ». L’icône apparaît sur votre écran d’accueil.'] };
+  if (env.browser === 'chrome') return { title: 'Installer sur ' + (env.tablet ? 'votre iPad' : 'votre iPhone') + ' (Chrome)', steps: ['Touchez l’icône Partager (carré avec une flèche vers le haut) à droite de la barre d’adresse, ou le menu ⋯.', 'Faites défiler et touchez « Sur l’écran d’accueil ».', 'Touchez « Ajouter ». Ouvrez ensuite l’appli depuis son icône.'], note: 'Si « Sur l’écran d’accueil » n’apparaît pas, ouvrez cette page dans Safari.' };
+  return { title: 'Installer sur ' + (env.tablet ? 'votre iPad' : 'votre iPhone') + ' (Safari)', steps: [env.tablet ? 'Touchez l’icône Partager (carré avec une flèche vers le haut) en haut à droite de Safari.' : 'Touchez l’icône Partager (carré avec une flèche vers le haut) en bas de l’écran.', 'Faites défiler et touchez « Sur l’écran d’accueil ».', 'Touchez « Ajouter » en haut à droite. Ouvrez ensuite l’appli depuis son icône.'] };
+}
+function showInstallHelp(env) {
+  const { title, steps, note } = installSteps(env);
+  const back = el('div', 'inst-back'); back.setAttribute('role', 'dialog'); back.setAttribute('aria-modal', 'true');
+  const card = el('div', 'card inst-card');
+  card.append(el('h3', '', '📲 ' + title));
+  const ol = el('ol', 'inst-steps'); for (const t of steps) ol.append(el('li', '', t)); card.append(ol);
+  if (note) card.append(el('p', 'hint', note));
+  card.append(el('p', 'hint', 'Une fois installée, l’appli s’ouvre en plein écran, comme une appli normale' + (env.ios ? ', et les notifications deviennent possibles.' : '.')));
+  const ok = el('button', 'primary', 'J’ai compris'); ok.onclick = () => back.remove();
+  card.append(ok); back.append(card); back.onclick = (e) => { if (e.target === back) back.remove(); };
+  document.body.append(back); ok.focus();
+}
+function renderInstall() {
+  const box = $('installBox'); if (!box) return;
+  box.replaceChildren(); box.hidden = true;
+  const env = installEnv();
+  if (!(env.ios || env.android) || !env.browser || isInstalled() || installDismissed()) return;
+  box.hidden = false; box.className = 'card install';
+  box.append(el('h4', '', `📲 Installer l’appli sur votre ${env.device}`), el('p', 'hint', 'Accès direct depuis l’écran d’accueil, en plein écran' + (env.ios ? ', et notifications possibles.' : '.')));
+  const row = el('div', 'btn-row');
+  const go = el('button', 'primary small', 'Installer');
+  go.onclick = async () => {
+    if (installPrompt) { try { installPrompt.prompt(); await installPrompt.userChoice; } catch { /* ignoré */ } installPrompt = null; renderInstall(); if (!isInstalled()) return; }
+    else showInstallHelp(env);
+  };
+  const later = el('button', 'secondary small', 'Plus tard'); later.onclick = () => { raw.set('installDismissed', String(Date.now())); renderInstall(); };
+  row.append(go, later); box.append(row);
+}
+window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); installPrompt = e; renderInstall(); });
+window.addEventListener('appinstalled', () => { installPrompt = null; renderInstall(); });
+renderInstall();
