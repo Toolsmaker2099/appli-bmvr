@@ -1318,20 +1318,20 @@ const DEFAULT_PINS = ['Médiapart', 'Cafeyn', 'Marsactu'];
 const readPins = () => { try { const v = JSON.parse(store.get('svcPins') || 'null'); return Array.isArray(v) ? v : DEFAULT_PINS; } catch { return DEFAULT_PINS; } };
 const writePins = (a) => store.set('svcPins', JSON.stringify(a));
 const shortDesc = (t) => { t = t || ''; return t.length > 46 ? t.slice(0, 44).replace(/\s+\S*$/, '') + '…' : t; };
-// Services qui s'ouvrent sur le site de la BMVR : courte explication de ce qu'il faut y faire (affichée sur la tuile et au toucher).
+// Services qui s'ouvrent sur le site de la BMVR : même explication sur la tuile et au toucher.
+const BMVR_EN_LIGNE = 'https://www.bmvr.marseille.fr/en-ligne';
 function viaBmvr(it) {
-  if (it.name === 'Marsactu') return 'Sur le site BMVR, touchez Marsactu';
-  if (it.name === 'Retronews') return 'Via le site BMVR · connexion si demandée';
-  if (it.kind === 'notice' && /^https:\/\/www\.bmvr\.marseille\.fr\//.test(it.url || '')) return 'Ouvre la fiche sur le site BMVR';
+  if (it.name === 'Marsactu' || it.name === 'Retronews') return `S’ouvre sur le site de la BMVR : touchez ${it.name} sur la page « En ligne » (connexion à la BMVR si demandée).`;
+  if (it.kind === 'notice' && /^https:\/\/www\.bmvr\.marseille\.fr\//.test(it.url || '')) return 'S’ouvre sur le site de la BMVR : suivez le lien d’accès sur la fiche.';
   return '';
 }
 async function openServiceItem(it, tile) {
   const err = $('svcErr'); err.textContent = '';
-  { const v = viaBmvr(it); if (v) err.textContent = `${it.name} s’ouvre sur le site de la BMVR. ` + (it.name === 'Marsactu' ? 'Touchez Marsactu sur la page « En ligne » ; connectez-vous à la BMVR si on vous le demande.' : it.name === 'Retronews' ? 'Connectez-vous à la BMVR si on vous le demande : le site vous mène ensuite à Retronews.' : 'Suivez le lien d’accès sur la fiche.'); }
+  { const v = viaBmvr(it); if (v) err.textContent = v; }
   const open = (u) => window.open(u, '_blank', 'noopener');
-  if (it.name === 'Marsactu') return open('https://www.bmvr.marseille.fr/en-ligne'); // accès par clic depuis le site de la BMVR
-  // Retronews ne reconnaît la bibliothèque que si le clic part d'une page de bmvr.marseille.fr (contrôle du site d'origine) : même principe que Marsactu.
-  if (it.name === 'Retronews') return open(/^https:\/\/www\.bmvr\.marseille\.fr\/notice\?id=/.test(it.url) ? it.url : 'https://www.bmvr.marseille.fr/en-ligne');
+  if (it.name === 'Marsactu') return open(BMVR_EN_LIGNE); // accès par clic depuis le site de la BMVR
+  // Retronews, comme Marsactu, ne reconnaît la bibliothèque que si le clic part d'une page de bmvr.marseille.fr : on passe par la page « En ligne ».
+  if (it.name === 'Retronews') return open(BMVR_EN_LIGNE);
   if (it.kind !== 'sso') return open(it.url);
   if (!hasCreds()) { location.hash = '#compte'; return; }
   const strong = tile.querySelector('strong'), label = strong.textContent; tile.disabled = true; strong.textContent = label + '…';
