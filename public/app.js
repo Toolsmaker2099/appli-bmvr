@@ -1318,8 +1318,16 @@ const DEFAULT_PINS = ['Médiapart', 'Cafeyn', 'Marsactu'];
 const readPins = () => { try { const v = JSON.parse(store.get('svcPins') || 'null'); return Array.isArray(v) ? v : DEFAULT_PINS; } catch { return DEFAULT_PINS; } };
 const writePins = (a) => store.set('svcPins', JSON.stringify(a));
 const shortDesc = (t) => { t = t || ''; return t.length > 46 ? t.slice(0, 44).replace(/\s+\S*$/, '') + '…' : t; };
+// Services qui s'ouvrent sur le site de la BMVR : courte explication de ce qu'il faut y faire (affichée sur la tuile et au toucher).
+function viaBmvr(it) {
+  if (it.name === 'Marsactu') return 'Sur le site BMVR, touchez Marsactu';
+  if (it.name === 'Retronews') return 'Via le site BMVR · connexion si demandée';
+  if (it.kind === 'notice' && /^https:\/\/www\.bmvr\.marseille\.fr\//.test(it.url || '')) return 'Ouvre la fiche sur le site BMVR';
+  return '';
+}
 async function openServiceItem(it, tile) {
   const err = $('svcErr'); err.textContent = '';
+  { const v = viaBmvr(it); if (v) err.textContent = `${it.name} s’ouvre sur le site de la BMVR. ` + (it.name === 'Marsactu' ? 'Touchez Marsactu sur la page « En ligne » ; connectez-vous à la BMVR si on vous le demande.' : it.name === 'Retronews' ? 'Connectez-vous à la BMVR si on vous le demande : le site vous mène ensuite à Retronews.' : 'Suivez le lien d’accès sur la fiche.'); }
   const open = (u) => window.open(u, '_blank', 'noopener');
   if (it.name === 'Marsactu') return open('https://www.bmvr.marseille.fr/en-ligne'); // accès par clic depuis le site de la BMVR
   // Retronews ne reconnaît la bibliothèque que si le clic part d'une page de bmvr.marseille.fr (contrôle du site d'origine) : même principe que Marsactu.
@@ -1345,7 +1353,7 @@ function drawServices(data) {
   const all = data.sections.flatMap((x) => x.items.map((it) => ({ ...it, theme: x.title })));
   const tileOf = (it) => {
     const wrap = el('div', 'tile-wrap');
-    const t = el('button', 'tile service'); t.append(el('span', 'ico', SVC_ICON[it.theme] || '🌐'), el('strong', '', it.name), el('small', '', it.name === 'Marsactu' ? 'Journal local · via le site BMVR' : it.name === 'Retronews' ? 'Presse ancienne · via le site BMVR' : shortDesc(it.desc)));
+    const t = el('button', 'tile service'); t.append(el('span', 'ico', SVC_ICON[it.theme] || '🌐'), el('strong', '', it.name), el('small', '', viaBmvr(it) || shortDesc(it.desc)));
     t.onclick = () => openServiceItem(it, t);
     const on = pins.includes(it.name);
     const pin = el('button', 'pin' + (on ? ' on' : ''), on ? '★' : '☆'); pin.setAttribute('aria-label', (on ? 'Désépingler ' : 'Épingler ') + it.name); pin.setAttribute('aria-pressed', String(on));
