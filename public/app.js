@@ -1355,6 +1355,20 @@ function drawServices(data) {
   const section = (title, items) => { if (!items.length) return; box.append(el('h3', 'sec-t', title)); const g = el('div', 'tiles'); g.append(...items.map(tileOf)); box.append(g); };
   section('⭐ Épinglés', pins.map((n) => all.find((it) => it.name === n)).filter(Boolean));
   for (const sec of data.sections) section(`${SVC_ICON[sec.title] || '🌐'} ${sec.title}`, all.filter((it) => it.theme === sec.title && !pins.includes(it.name)));
+  // Tuile d'essai : le parcours « normal » (connexion par le relais, puis ouverture depuis l'appli), pour observer la réponse de Marsactu
+  // dans l'onglet Réseau du navigateur. Aucun en-tête n'est modifié : Marsactu verra une arrivée depuis l'appli et décidera lui-même.
+  box.append(el('h3', 'sec-t', '🧪 Essai'));
+  const g = el('div', 'tiles'), wrap = el('div', 'tile-wrap');
+  const t = el('button', 'tile service'); t.append(el('span', 'ico', '🧪'), el('strong', '', 'Marsactu (essai relais)'), el('small', '', 'Passe par le relais · pour observer'));
+  t.onclick = async () => {
+    const err = $('svcErr'); err.textContent = ''; const strong = t.querySelector('strong'), label = strong.textContent; t.disabled = true; strong.textContent = label + '…';
+    try {
+      const r = await fetch(RELAY + '/service', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: store.get('user'), password: store.get('pass'), service: 'marsactu' }) });
+      const d = await r.json(); if (!r.ok) throw new Error(d.error || 'HTTP ' + r.status);
+      location.assign(d.url);
+    } catch (e) { err.textContent = 'Essai Marsactu : ' + e.message; } finally { t.disabled = false; strong.textContent = label; }
+  };
+  wrap.append(t); g.append(wrap); box.append(g);
 }
 async function renderServicesHome() {
   const box = $('svcHome'); if (!box) return;
