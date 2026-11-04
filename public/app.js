@@ -1370,8 +1370,8 @@ function drawServices(data) {
       const d = await r.json(); if (!r.ok) throw new Error(d.error || 'HTTP ' + r.status);
       //location.assign(d.url);
 
-      // 2. Construction de l'URL pour passer par votre second Worker d'e centralisation des clics pour statistiques
-      const urlAiguillee = 'https://mylinksbiblio.toolsmaker.workers.dev' + encodeURIComponent(d.url);
+      // 2. Construction de l'URL pour passer par votre second Worker de centralisation des clics pour statistiques
+      const urlAiguillee = 'https://mylinksbiblio.toolsmaker.workers.dev/?url=' + encodeURIComponent(d.url);
       
       // 3. Ouverture dans le même onglet à travers mylinksbiblio
       location.assign(urlAiguillee);
