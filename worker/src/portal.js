@@ -70,6 +70,8 @@ function makeClient(fetchFn) {
         const res = await fetchFn(url, { redirect: 'manual', headers: { ...base, ...(isBmvr ? { Cookie: cookieHeader() } : {}) } });
         if (isBmvr) keep(res);
         const loc = res.headers.get('Location');
+        // Page externe qui répond directement (ex. Retronews, reconnu par son paramètre ?bm=) : rien à transmettre, on l'ouvre telle quelle.
+        if (hop === 0 && !isBmvr && res.status === 200) { trace.push(`direct ${host}`); return startUrl; }
         if (!loc || res.status < 300 || res.status > 399) throw new Error(`Service : pas de redirection (HTTP ${res.status})`);
         const next = new URL(loc, url).toString();
         { const n = new URL(next); trace.push(`${res.status} ${host} → ${n.host}${n.pathname} [${[...n.searchParams.keys()].join(',')}]`); }
