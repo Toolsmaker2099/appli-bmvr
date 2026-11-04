@@ -1322,6 +1322,8 @@ async function openServiceItem(it, tile) {
   const err = $('svcErr'); err.textContent = '';
   const open = (u) => window.open(u, '_blank', 'noopener');
   if (it.name === 'Marsactu') return open('https://www.bmvr.marseille.fr/en-ligne'); // accès par clic depuis le site de la BMVR
+  // Retronews ne reconnaît la bibliothèque que si le clic part d'une page de bmvr.marseille.fr (contrôle du site d'origine) : même principe que Marsactu.
+  if (it.name === 'Retronews') return open(/^https:\/\/www\.bmvr\.marseille\.fr\/notice\?id=/.test(it.url) ? it.url : 'https://www.bmvr.marseille.fr/en-ligne');
   if (it.kind !== 'sso') return open(it.url);
   if (!hasCreds()) { location.hash = '#compte'; return; }
   const strong = tile.querySelector('strong'), label = strong.textContent; tile.disabled = true; strong.textContent = label + '…';
@@ -1343,7 +1345,7 @@ function drawServices(data) {
   const all = data.sections.flatMap((x) => x.items.map((it) => ({ ...it, theme: x.title })));
   const tileOf = (it) => {
     const wrap = el('div', 'tile-wrap');
-    const t = el('button', 'tile service'); t.append(el('span', 'ico', SVC_ICON[it.theme] || '🌐'), el('strong', '', it.name), el('small', '', it.name === 'Marsactu' ? 'Journal local · via le site BMVR' : shortDesc(it.desc)));
+    const t = el('button', 'tile service'); t.append(el('span', 'ico', SVC_ICON[it.theme] || '🌐'), el('strong', '', it.name), el('small', '', it.name === 'Marsactu' ? 'Journal local · via le site BMVR' : it.name === 'Retronews' ? 'Presse ancienne · via le site BMVR' : shortDesc(it.desc)));
     t.onclick = () => openServiceItem(it, t);
     const on = pins.includes(it.name);
     const pin = el('button', 'pin' + (on ? ' on' : ''), on ? '★' : '☆'); pin.setAttribute('aria-label', (on ? 'Désépingler ' : 'Épingler ') + it.name); pin.setAttribute('aria-pressed', String(on));
