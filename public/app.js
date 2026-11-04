@@ -1368,13 +1368,8 @@ function drawServices(data) {
       
       const r = await fetch(RELAY + '/service', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: store.get('user'), password: store.get('pass'), service: 'marsactu' }) });
       const d = await r.json(); if (!r.ok) throw new Error(d.error || 'HTTP ' + r.status);
-      //location.assign(d.url);
-
-      // 2. Preparation pour l'étude statistique des liens cliqués
-      // On envoie simplement vers le second Worker
-      const urlAiguillee = 'https://mylinksbiblio.toolsmaker.workers.dev/?url=' + encodeURIComponent(d.url);
-      location.assign(urlAiguillee);  
-    
+      location.assign(d.url);
+      
     } catch (e) { err.textContent = 'Essai Marsactu : ' + e.message; } finally { t.disabled = false; strong.textContent = label; }
   };
   wrap.append(t); g.append(wrap); box.append(g);
