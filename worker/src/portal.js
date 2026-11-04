@@ -21,7 +21,7 @@ export async function getApiToken(fetchFn = fetch) {
   return m[1];
 }
 
-function makeClient(fetchFn) {
+export function makeClient(fetchFn) {
   const BMVR_HOST = new URL(BASE).host;
   let apiToken = null;
   let cookies = new Map();
@@ -291,6 +291,15 @@ export async function fetchServiceUrl({ username, password }, service, fetchFn =
   if (!session.token) throw new AuthError(`Connexion refusée : ${session.error || 'identifiants incorrects ?'}`);
   await c.connect();
   trace.push(`session ${c.cookieNames().join('+')}`);
+  // Fiche « connecteur » du catalogue : une fois connecté, sa lecture renvoie l'adresse du service avec un ticket CAS.
+  const cn = start.match(/^https:\/\/www\.bmvr\.marseille\.fr\/notice\?id=([0-9a-f-]{36})$/);
+  if (cn) {
+    const n = await c.get(session.token, 'notice', { id: cn[1], aspect: 'Meta', locale: 'fr' });
+    const u = n?.redirectUrl;
+    if (typeof u !== 'string' || !/^https:\/\//.test(u) || /ticket=/.test(u) === false) throw new Error('Service : pas d’adresse de connexion fournie');
+    trace.push(`connecteur → ${new URL(u).host}`);
+    return u;
+  }
   const entry = await c.serviceUrl(start, trace);
   if (follow) await followChain(entry, fetchFn, trace); // diagnostic : suit la suite des redirections côté relais
   return entry;
@@ -1194,12 +1203,14 @@ export function parseServices(graph) {
     if (!res) return;
     res.links = res.links.filter(Boolean);
     const isNotice = (u) => /^(\/|https:\/\/www\.bmvr\.marseille\.fr\/)(notice|permalink|bibliotheque-numerique)/.test(u);
-    const main = res.links.find((u) => !isNotice(u)) ?? res.links[0] ?? '';
+    // Retronews : hors des bibliothèques, la page officielle renvoie vers une fiche « connecteur » (CAS), pas vers le lien direct.
+    const connector = /^retronews$/i.test(res.name) ? res.links.find((u) => /^(\/|https:\/\/www\.bmvr\.marseille\.fr\/)notice\?id=[0-9a-f-]{36}$/.test(u)) : '';
+    const main = connector || (res.links.find((u) => !isNotice(u)) ?? res.links[0] ?? '');
     const abs = main.startsWith('/') ? 'https://www.bmvr.marseille.fr' + main : main;
     if (res.name && !names.has(res.name) && /^https?:\/\//.test(abs)) {
       names.add(res.name);
       const external = new URL(abs).host !== 'www.bmvr.marseille.fr';
-      const kind = isNotice(main) ? 'notice' : /^Acc[èe]s libre$/i.test(res.access) ? 'direct' : 'sso';
+      const kind = connector ? 'sso' : isNotice(main) ? 'notice' : /^Acc[èe]s libre$/i.test(res.access) ? 'direct' : 'sso';
       if (!cur) { cur = { title: 'Services', items: [] }; sections.push(cur); }
       cur.items.push({ name: res.name, desc: res.desc || '', access: /distance/i.test(res.access) ? 'Accessible à distance' : /biblioth/i.test(res.access) ? 'Dans les bibliothèques' : 'Accès libre', url: abs, kind, external });
     }
