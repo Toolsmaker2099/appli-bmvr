@@ -177,12 +177,13 @@ async function checkOne(env, id, rec, now) {
     if (prefs.messages) data.messages = (await fetchAccount(creds, 'messages')).items;
   } catch (e) {
     if (e instanceof AuthError) {
-      rec.fails = (rec.fails || 0) + 1;
-      if (rec.fails >= 3) { await sendPush(env, rec.sub, { title: 'Notifications arrêtées', body: 'Le mot de passe a été refusé. Réactivez les notifications dans l’appli.', tag: 'auth', url: '#compte' }); await env.NOTIF.delete(`sub:${id}`); return; }
+      // Un refus passager du portail ne doit pas effacer l'abonnement : on n'abandonne qu'après 3 refus étalés sur plus de 24 h.
+      rec.fails = (rec.fails || 0) + 1; rec.failSince = rec.failSince || now;
+      if (rec.fails >= 3 && now - rec.failSince > 24 * 3600 * 1000) { await sendPush(env, rec.sub, { title: 'Notifications arrêtées', body: 'Le mot de passe a été refusé. Réactivez les notifications dans l’appli.', tag: 'auth', url: '#compte' }); await env.NOTIF.delete(`sub:${id}`); return; }
     }
     rec.checkedAt = now; await save(env, id, rec); return; // erreur passagère : on réessaiera
   }
-  rec.fails = 0;
+  rec.fails = 0; rec.failSince = 0;
   // un type désactivé ne doit pas vider l'état mémorisé
   const { notes, state, events } = detect(rec, data, now);
   if (!prefs.loans) state.loansSent = rec.state?.loansSent ?? [];

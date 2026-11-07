@@ -1855,8 +1855,12 @@ async function notifPanel() {
     box.replaceChildren(); msg.textContent = ''; msg.className = 'hint';
     if (!notifSupported()) { box.append(el('p', 'hint', 'Ce navigateur ne gère pas les notifications.')); return; }
     if (isIOS() && !isStandalone()) { box.append(el('p', 'hint', 'Sur iPhone, ajoutez d’abord l’appli à l’écran d’accueil (Partager → Sur l’écran d’accueil), puis rouvrez-la depuis l’icône.')); return; }
-    let sub = null, st = { subscribed: false };
-    try { sub = await pushSub(); if (sub) st = await call('/notif-status', { endpoint: sub.endpoint }); } catch (e) { msg.textContent = e.message; }
+    let sub = null, st = { subscribed: false }, failed = false;
+    try { sub = await pushSub(); if (sub) st = await call('/notif-status', { endpoint: sub.endpoint }); } catch (e) { failed = true; msg.textContent = e.message; }
+    if (failed) { // état impossible à vérifier (réseau, relais) : on ne le présente pas comme « désactivé »
+      box.append(el('p', 'hint', store.get('notifOn') === '1' ? 'Impossible de vérifier l’état des notifications pour le moment. Elles restent activées.' : 'Impossible de vérifier l’état des notifications pour le moment.'));
+      const retry = el('button', 'secondary small', 'Réessayer'); retry.onclick = () => draw(); box.append(retry); return;
+    }
     if (st.subscribed) {
       store.set('notifOn', '1');
       box.append(el('p', '', `✓ Activées pour ${store.get('user') || 'ce compte'}.`));
@@ -2038,3 +2042,20 @@ function renderInstall() {
 window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); installPrompt = e; renderInstall(); });
 window.addEventListener('appinstalled', () => { installPrompt = null; renderInstall(); });
 renderInstall();
+
+
+// Réparation silencieuse : si les notifications avaient été activées sur cet appareil mais que l'abonnement a disparu (navigateur qui le renouvelle ou
+// le purge, abonnement effacé du relais), on le recrée sans rien redemander, tant que l'autorisation du navigateur est encore accordée.
+async function repairNotif() {
+  try {
+    if (store.get('notifOn') !== '1' || !hasCreds() || !notifSupported() || isRestricted()) return;
+    if (Notification.permission !== 'granted' || (isIOS() && !isStandalone())) return;
+    const cfg = await notifConfig(); if (!cfg.enabled) return;
+    const reg = await navigator.serviceWorker.ready;
+    let ps = await reg.pushManager.getSubscription();
+    if (ps) { const st = await call('/notif-status', { endpoint: ps.endpoint }); if (st.subscribed) return; }
+    ps = ps || await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlB64(cfg.publicKey) });
+    await call('/notif-subscribe', { subscription: ps.toJSON(), prefs: { loans: true, resa: true, messages: true, events: true }, events: agList(), label: notifLabel() });
+  } catch { /* nouvel essai à la prochaine ouverture */ }
+}
+setTimeout(repairNotif, 4000);
