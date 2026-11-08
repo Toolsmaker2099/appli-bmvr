@@ -2049,13 +2049,15 @@ renderInstall();
 async function repairNotif() {
   try {
     if (store.get('notifOn') !== '1' || !hasCreds() || !notifSupported() || isRestricted()) return;
+    const kk = 'notifRepair:' + store.get('user'); if (Date.now() - Number(raw.get(kk) || 0) < 12 * 3600 * 1000) return; // au plus une réparation par demi-journée
     if (Notification.permission !== 'granted' || (isIOS() && !isStandalone())) return;
     const cfg = await notifConfig(); if (!cfg.enabled) return;
     const reg = await navigator.serviceWorker.ready;
     let ps = await reg.pushManager.getSubscription();
     if (ps) { const st = await call('/notif-status', { endpoint: ps.endpoint }); if (st.subscribed) return; }
     ps = ps || await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlB64(cfg.publicKey) });
-    await call('/notif-subscribe', { subscription: ps.toJSON(), prefs: { loans: true, resa: true, messages: true, events: true }, events: agList(), label: notifLabel() });
+    raw.set(kk, String(Date.now()));
+    await call('/notif-subscribe', { silent: true, subscription: ps.toJSON(), prefs: { loans: true, resa: true, messages: true, events: true }, events: agList(), label: notifLabel() });
   } catch { /* nouvel essai à la prochaine ouverture */ }
 }
 setTimeout(repairNotif, 4000);

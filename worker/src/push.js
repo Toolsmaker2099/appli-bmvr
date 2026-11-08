@@ -106,6 +106,7 @@ export async function subscribe(env, body) {
   const id = await idOf(sub.endpoint, body.username);
   const rec = { label: cleanLabel(body.label),  sub, cred: await seal(env, { username: body.username, password: body.password }), user: String(body.username).slice(0, 40).replace(/.(?=.{4})/g, '•'), prefs: cleanPrefs(body.prefs), events: cleanEvents(body.events), state: null, checkedAt: 0, fails: 0, created: Date.now() };
   await save(env, id, rec);
+  if (body.silent === true) return { ok: true, prefs: rec.prefs }; // réparation automatique : pas de message de bienvenue
   await sendPush(env, sub, { title: withLabel(rec, 'Notifications activées'), body: 'Vous serez prévenu ici des retours, réservations et événements.', tag: 'welcome', url: '#accueil' });
   return { ok: true, prefs: rec.prefs };
 }
