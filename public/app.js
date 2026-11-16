@@ -1880,6 +1880,7 @@ async function notifPanel() {
       return;
     }
     store.del('notifOn');
+    { const why = { 'mot-de-passe-refuse': 'le mot de passe a été refusé plusieurs fois par la BMVR', 'push-gone': 'le téléphone a supprimé l’abonnement', 'push-gone-test': 'le téléphone a supprimé l’abonnement', absent: 'aucune trace de l’abonnement sur le relais' }[st.reason]; if (sub && why) box.append(el('p', 'hint err', 'Notifications désactivées : ' + why + (st.at ? ' (' + new Date(st.at).toLocaleString('fr-FR') + ')' : '') + '.')); }
     box.append(el('p', 'hint', 'Recevez une alerte sur ce téléphone, même appli fermée : réservation à retirer, prêt à rendre, nouveau message, événement de votre liste (vérifié toutes les 3 heures environ).'));
     const on = el('button', 'primary small', 'Activer pour ce compte');
     on.onclick = async () => {
@@ -2056,8 +2057,8 @@ async function repairNotif() {
     let ps = await reg.pushManager.getSubscription();
     if (ps) { const st = await call('/notif-status', { endpoint: ps.endpoint }); if (st.subscribed) return; }
     ps = ps || await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlB64(cfg.publicKey) });
-    raw.set(kk, String(Date.now()));
     await call('/notif-subscribe', { silent: true, subscription: ps.toJSON(), prefs: { loans: true, resa: true, messages: true, events: true }, events: agList(), label: notifLabel() });
+    raw.set(kk, String(Date.now()));
   } catch { /* nouvel essai à la prochaine ouverture */ }
 }
 setTimeout(repairNotif, 4000);

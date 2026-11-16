@@ -88,6 +88,11 @@ async function find(env, endpoint, username) {
   if (old && await owner(env, old, { username, password: undefined, skipPassword: true })) { await env.NOTIF.delete(`sub:${oldId}`); await save(env, id, old); return { id, rec: old }; }
   return { id, rec: null };
 }
+// Quand un abonnement est supprimé par le relais lui-même, on garde 30 jours la raison (sans donnée personnelle) pour pouvoir l'expliquer.
+async function drop(env, id, reason) {
+  await env.NOTIF.delete(`sub:${id}`);
+  try { await env.NOTIF.put(`gone:${id}`, JSON.stringify({ reason, at: Date.now() }), { expirationTtl: 30 * 86400 }); } catch { /* sans importance */ }
+}
 async function load(env, id) { const raw = await env.NOTIF.get(`sub:${id}`); return raw ? JSON.parse(raw) : null; }
 const save = (env, id, rec) => env.NOTIF.put(`sub:${id}`, JSON.stringify(rec), { metadata: { checkedAt: rec.checkedAt || 0 } });
 async function owner(env, rec, body) {
@@ -115,11 +120,12 @@ export async function manage(env, body, action) {
   const endpoint = String(body.endpoint ?? '');
   if (!endpoint) throw new Error('Abonnement manquant');
   const { id, rec } = await find(env, endpoint, body.username);
+  if (!rec && action === 'status') { const g = await env.NOTIF.get(`gone:${id}`); let t = null; try { t = g ? JSON.parse(g) : null; } catch { t = null; } return t ? { subscribed: false, reason: t.reason, at: t.at } : { subscribed: false, reason: 'absent' }; }
   if (!rec) return action === 'status' ? { subscribed: false } : action === 'unsubscribe' ? { ok: true } : (() => { throw new Error('Notifications non activées sur cet appareil'); })();
   if (!(await owner(env, rec, body))) { if (action === 'status') return { subscribed: false }; throw new Error('Identifiants incorrects pour ces notifications'); }
-  if (action === 'unsubscribe') { await env.NOTIF.delete(`sub:${id}`); return { ok: true }; }
+  if (action === 'unsubscribe') { await env.NOTIF.delete(`sub:${id}`); await env.NOTIF.delete(`gone:${id}`); return { ok: true }; }
   if (action === 'status') return { subscribed: true, prefs: rec.prefs, user: rec.user };
-  if (action === 'test') { const r = await sendPush(env, rec.sub, { title: withLabel(rec, 'Notification de test'), body: 'Tout fonctionne : vous recevrez vos alertes ici.', tag: 'test', url: '#accueil' }); if (r === 'gone') await env.NOTIF.delete(`sub:${id}`); return { ok: r === 'ok' }; }
+  if (action === 'test') { const r = await sendPush(env, rec.sub, { title: withLabel(rec, 'Notification de test'), body: 'Tout fonctionne : vous recevrez vos alertes ici.', tag: 'test', url: '#accueil' }); if (r === 'gone') await drop(env, id, 'push-gone-test'); return { ok: r === 'ok' }; }
   if (action === 'update') { if (body.label !== undefined) rec.label = cleanLabel(body.label); if (body.prefs) rec.prefs = cleanPrefs(body.prefs); if (body.events) rec.events = cleanEvents(body.events); await save(env, id, rec); return { ok: true, prefs: rec.prefs }; }
   throw new Error('Action inconnue');
 }
@@ -180,7 +186,7 @@ async function checkOne(env, id, rec, now) {
     if (e instanceof AuthError) {
       // Un refus passager du portail ne doit pas effacer l'abonnement : on n'abandonne qu'après 3 refus étalés sur plus de 24 h.
       rec.fails = (rec.fails || 0) + 1; rec.failSince = rec.failSince || now;
-      if (rec.fails >= 3 && now - rec.failSince > 24 * 3600 * 1000) { await sendPush(env, rec.sub, { title: 'Notifications arrêtées', body: 'Le mot de passe a été refusé. Réactivez les notifications dans l’appli.', tag: 'auth', url: '#compte' }); await env.NOTIF.delete(`sub:${id}`); return; }
+      if (rec.fails >= 3 && now - rec.failSince > 24 * 3600 * 1000) { await sendPush(env, rec.sub, { title: 'Notifications arrêtées', body: 'Le mot de passe a été refusé. Réactivez les notifications dans l’appli.', tag: 'auth', url: '#compte' }); await drop(env, id, 'mot-de-passe-refuse'); return; }
     }
     rec.checkedAt = now; await save(env, id, rec); return; // erreur passagère : on réessaiera
   }
@@ -191,7 +197,7 @@ async function checkOne(env, id, rec, now) {
   if (!prefs.resa) state.resa = rec.state?.resa ?? {};
   if (!prefs.messages) state.msgSeen = rec.state?.msgSeen ?? [];
   rec.state = state; rec.events = events; rec.checkedAt = now;
-  for (const n of notes) { if ((await sendPush(env, rec.sub, { ...n, title: withLabel(rec, n.title) })) === 'gone') { await env.NOTIF.delete(`sub:${id}`); return; } }
+  for (const n of notes) { if ((await sendPush(env, rec.sub, { ...n, title: withLabel(rec, n.title) })) === 'gone') { await drop(env, id, 'push-gone'); return; } }
   await save(env, id, rec);
 }
 
