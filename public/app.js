@@ -5,7 +5,7 @@ const $ = (id) => document.getElementById(id);
 const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
 // Plusieurs comptes sur le même appareil : chaque compte a ses propres identifiants et ses propres copies de données.
 // Les clés « par compte » sont rangées sous p:<id>:<clé> ; 'profiles' liste les comptes et 'active' donne le compte courant.
-const PER = new Set(['svcPins', 'svcCache', 'user', 'pass', 'cache', 'resaCache', 'msgCache', 'seenMsgs', 'pickup', 'lastTrace', 'agendaList', 'notifOn']);
+const PER = new Set(['svcPins', 'svcCache', 'user', 'pass', 'cache', 'resaCache', 'msgCache', 'seenMsgs', 'pickup', 'lastTrace', 'agendaList', 'notifOn', 'notifWanted']);
 const raw = {
   get: (k) => { try { return localStorage.getItem(k) || ''; } catch { return ''; } },
   set: (k, v) => { try { localStorage.setItem(k, v); } catch {} },
@@ -1861,8 +1861,13 @@ async function notifPanel() {
       box.append(el('p', 'hint', store.get('notifOn') === '1' ? 'Impossible de vérifier l’état des notifications pour le moment. Elles restent activées.' : 'Impossible de vérifier l’état des notifications pour le moment.'));
       const retry = el('button', 'secondary small', 'Réessayer'); retry.onclick = () => draw(); box.append(retry); return;
     }
+    if (!st.subscribed && store.get('notifWanted') === '1' && Notification.permission === 'granted') { // activées auparavant : on tente de les rétablir seules avant de proposer le bouton
+      msg.textContent = 'Réactivation des notifications…';
+      if (await repairNotif(true)) { sub = await pushSub(); try { st = await call('/notif-status', { endpoint: sub.endpoint }); } catch { /* affiché ci-dessous */ } }
+      msg.textContent = '';
+    }
     if (st.subscribed) {
-      store.set('notifOn', '1');
+      store.set('notifOn', '1'); store.set('notifWanted', '1');
       box.append(el('p', '', `✓ Activées pour ${store.get('user') || 'ce compte'}.`));
       for (const [k, label] of NOTIF_TYPES) {
         const lb = el('label', 'notif-opt'); const cb = el('input'); cb.type = 'checkbox'; cb.checked = st.prefs?.[k] !== false;
@@ -1874,12 +1879,12 @@ async function notifPanel() {
       const off = el('button', 'secondary small danger', 'Désactiver et effacer mes données');
       off.onclick = async () => {
         if (!confirm('Désactiver les notifications ? Votre identifiant et votre mot de passe seront effacés du relais.')) return;
-        try { await call('/notif-unsubscribe', { endpoint: sub.endpoint }); store.del('notifOn'); if (!getProfiles().some((p) => raw.get(`p:${p.id}:notifOn`) === '1')) await sub.unsubscribe(); draw(); msg.textContent = 'Notifications désactivées. Vos identifiants ont été effacés du relais.'; } catch (e) { msg.textContent = e.message; }
+        try { await call('/notif-unsubscribe', { endpoint: sub.endpoint }); store.del('notifOn'); store.del('notifWanted'); if (!getProfiles().some((p) => raw.get(`p:${p.id}:notifOn`) === '1')) await sub.unsubscribe(); draw(); msg.textContent = 'Notifications désactivées. Vos identifiants ont été effacés du relais.'; } catch (e) { msg.textContent = e.message; }
       };
       row.append(test, off); box.append(row);
       return;
     }
-    store.del('notifOn');
+    if (store.get('notifWanted') !== '1') store.del('notifOn');
     { const why = { 'mot-de-passe-refuse': 'le mot de passe a été refusé plusieurs fois par la BMVR', 'push-gone': 'le téléphone a supprimé l’abonnement', 'push-gone-test': 'le téléphone a supprimé l’abonnement', absent: 'aucune trace de l’abonnement sur le relais' }[st.reason]; if (sub && why) box.append(el('p', 'hint err', 'Notifications désactivées : ' + why + (st.at ? ' (' + new Date(st.at).toLocaleString('fr-FR') + ')' : '') + '.')); }
     box.append(el('p', 'hint', 'Recevez une alerte sur ce téléphone, même appli fermée : réservation à retirer, prêt à rendre, nouveau message, événement de votre liste (vérifié toutes les 3 heures environ).'));
     const on = el('button', 'primary small', 'Activer pour ce compte');
@@ -1891,7 +1896,7 @@ async function notifPanel() {
         const reg = await navigator.serviceWorker.ready;
         const ps = (await reg.pushManager.getSubscription()) || await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlB64(cfg.publicKey) });
         await call('/notif-subscribe', { subscription: ps.toJSON(), prefs: { loans: true, resa: true, messages: true, events: true }, events: agList(), label: notifLabel() });
-        store.set('notifOn', '1'); await draw();
+        store.set('notifOn', '1'); store.set('notifWanted', '1'); await draw();
       } catch (e) { on.disabled = false; msg.textContent = e.message; }
     };
     box.append(on);
@@ -2047,18 +2052,19 @@ renderInstall();
 
 // Réparation silencieuse : si les notifications avaient été activées sur cet appareil mais que l'abonnement a disparu (navigateur qui le renouvelle ou
 // le purge, abonnement effacé du relais), on le recrée sans rien redemander, tant que l'autorisation du navigateur est encore accordée.
-async function repairNotif() {
+async function repairNotif(force = false) {
   try {
-    if (store.get('notifOn') !== '1' || !hasCreds() || !notifSupported() || isRestricted()) return;
-    const kk = 'notifRepair:' + store.get('user'); if (Date.now() - Number(raw.get(kk) || 0) < 12 * 3600 * 1000) return; // au plus une réparation par demi-journée
-    if (Notification.permission !== 'granted' || (isIOS() && !isStandalone())) return;
-    const cfg = await notifConfig(); if (!cfg.enabled) return;
+    if ((store.get('notifWanted') !== '1' && store.get('notifOn') !== '1') || !hasCreds() || !notifSupported() || isRestricted()) return false;
+    const kk = 'notifRepair:' + store.get('user'); if (!force && Date.now() - Number(raw.get(kk) || 0) < 6 * 3600 * 1000) return false; // au plus une tentative toutes les 6 h
+    if (Notification.permission !== 'granted' || (isIOS() && !isStandalone())) return false;
+    const cfg = await notifConfig(); if (!cfg.enabled) return false;
     const reg = await navigator.serviceWorker.ready;
     let ps = await reg.pushManager.getSubscription();
-    if (ps) { const st = await call('/notif-status', { endpoint: ps.endpoint }); if (st.subscribed) return; }
+    if (ps) { const st = await call('/notif-status', { endpoint: ps.endpoint }); if (st.subscribed) return true; }
     ps = ps || await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlB64(cfg.publicKey) });
     await call('/notif-subscribe', { silent: true, subscription: ps.toJSON(), prefs: { loans: true, resa: true, messages: true, events: true }, events: agList(), label: notifLabel() });
-    raw.set(kk, String(Date.now()));
-  } catch { /* nouvel essai à la prochaine ouverture */ }
+    raw.set(kk, String(Date.now())); store.set('notifOn', '1'); store.set('notifWanted', '1');
+    return true;
+  } catch { return false; /* nouvel essai à la prochaine ouverture */ }
 }
 setTimeout(repairNotif, 4000);
